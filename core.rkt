@@ -92,11 +92,7 @@
 
 (define (spawn-world boot-actions)
   (spawn world-handle-event
-	 (enqueue-actions (world 0
-				 (make-queue)
-				 (hash)
-				 '()
-				 (make-queue))
+	 (enqueue-actions (world 0 (make-queue) (hash) '() (make-queue))
 			  -1
 			  boot-actions)))
 
