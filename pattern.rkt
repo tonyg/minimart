@@ -2,7 +2,6 @@
 
 (require racket/match)
 (require (only-in racket/class object?))
-(require "struct-map.rkt")
 
 (provide ?
 	 wildcard?
