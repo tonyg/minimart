@@ -7,7 +7,8 @@
 	 wildcard?
 	 specialization?
 	 ground?
-	 intersect)
+	 intersect
+	 intersect?)
 
 (struct exn:unification-failure ())
 (define unification-failure (exn:unification-failure))
@@ -87,3 +88,9 @@
   (if ok?
       (ks result)
       (kf)))
+
+;; Any Any -> Boolean
+(define (intersect? a b)
+  (with-handlers ([exn:unification-failure? (lambda (e) #f)])
+    (unify a b)
+    #t))
