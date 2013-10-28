@@ -116,17 +116,18 @@
     ((process-behavior p) e (process-state p))))
 
 (define (apply-transition pid t w)
-  (match-define (transition new-state new-actions) t)
-  (let* ((w (transform-process pid w (lambda (p) (struct-copy process p [state new-state])))))
-    (enqueue-actions w pid new-actions)))
+  (match t
+    [#f w]
+    [(transition new-state new-actions)
+     (let* ((w (transform-process pid w (lambda (p) (struct-copy process p [state new-state])))))
+       (enqueue-actions w pid new-actions))]))
 
 (define (step-children w)
   (let-values (((w step-taken?)
 		(for/fold ([w w] [step-taken? #f]) (((pid p) (in-hash (world-process-table w))))
 		  (define t (deliver-event #f pid p))
-		  (if t
-		      (values (apply-transition pid t w) #t)
-		      (values w step-taken?)))))
+		  (values (apply-transition pid t w)
+			  (or step-taken? (and t #t))))))
     (and step-taken? (transition w '()))))
 
 (define (transition-bind k t0)
@@ -204,6 +205,7 @@
 
 (define (inject-event e w)
   (match e
+    [#f w]
     [(routing-update routes)
      (issue-local-routing-update (struct-copy world w [downward-routes (lift-routes routes)]))]
     [(message body meta-level feedback?)
