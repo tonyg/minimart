@@ -2,8 +2,8 @@
 
 (require racket/match)
 (require (only-in racket/port read-line-evt))
-(require "core.rkt")
-(require "ground.rkt")
+(require "../core.rkt")
+(require "../ground.rkt")
 
 (define (r e s)
   (match e
