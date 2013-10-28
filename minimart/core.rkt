@@ -131,7 +131,7 @@
 		(for/fold ([w w] [step-taken? #f]) (((pid p) (in-hash (world-process-table w))))
 		  (define t (deliver-event #f pid p))
 		  (values (apply-transition pid t w)
-			  (or step-taken? (and t #t))))))
+			  (or step-taken? (transition? t))))))
     (and step-taken? (transition w '()))))
 
 (define (transition-bind k t0)
