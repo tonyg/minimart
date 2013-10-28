@@ -50,7 +50,7 @@
   (route s? p (+ ml 1) l))
 
 (define (sub p #:meta-level [ml 0] #:level [l 0]) (route #t p ml l))
-(define (pub p #:meta-level [ml 0] #:level [l 0]) (route #t p ml l))
+(define (pub p #:meta-level [ml 0] #:level [l 0]) (route #f p ml l))
 
 (define (spawn behavior state [initial-routes '()]) (process initial-routes behavior state))
 (define (send body #:meta-level [ml 0]) (message body ml #f))
