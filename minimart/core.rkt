@@ -99,10 +99,14 @@
 			  -1
 			  boot-actions)))
 
+(define (event? x) (or (routing-update? x) (message? x)))
+(define (action? x) (or (event? x) (process? x) (quit? x)))
+
 (define (enqueue-actions w pid actions)
   (struct-copy world w
     [process-actions (queue-append-list (world-process-actions w)
-					(map (lambda (a) (cons pid a)) (flatten actions)))]))
+					(filter-map (lambda (a) (and (action? a) (cons pid a)))
+						    (flatten actions)))]))
 
 (define (quiescent? w)
   (and (queue-empty? (world-event-queue w))
