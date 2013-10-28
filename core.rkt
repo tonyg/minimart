@@ -93,7 +93,7 @@
 			  (lambda (dummy) e)
 			  (lambda () (loop rs))))]))]))
 
-(define (spawn-world boot-actions)
+(define (spawn-world . boot-actions)
   (spawn world-handle-event
 	 (enqueue-actions (world 0 (make-queue) (hash) '() (make-queue))
 			  -1
