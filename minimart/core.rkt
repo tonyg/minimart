@@ -19,6 +19,9 @@
 	 spawn
 	 send
 	 feedback
+	 co-route
+	 route-accepts?
+	 intersect-routes
 	 spawn-world
 	 deliver-event
 	 transition-bind
@@ -59,6 +62,17 @@
 (define (drop-routes rs) (filter-map drop-route rs))
 (define (lift-routes rs) (map lift-routes rs))
 
+(define (co-route r #:level [level-override #f])
+  (match-define (route sub? pat ml l) r)
+  (route (not sub?) pat ml (or level-override l)))
+
+(define (route-accepts? r m)
+  (and (= (message-meta-level m) (route-meta-level r))
+       (equal? (message-feedback? m) (not (route-subscription? r)))
+       (intersect (message-body m) (route-pattern r)
+		  (lambda (dummy) #t)
+		  (lambda () #f))))
+
 (define (intersect-routes rs1 rs2)
   (let loop1 ((rs1 rs1)
 	      (acc '()))
@@ -82,16 +96,8 @@
   (match e
     [(routing-update e-rs)
      (routing-update (intersect-routes e-rs rs))]
-    [(message body meta-level feedback?)
-     (let loop ((rs rs))
-       (match rs
-	 ['() #f]
-	 [(cons r rs)
-	  (and (= meta-level (route-meta-level r))
-	       (equal? feedback? (not (route-subscription? r)))
-	       (intersect body (route-pattern r)
-			  (lambda (dummy) e)
-			  (lambda () (loop rs))))]))]))
+    [(? message? m)
+     (if (ormap (lambda (r) (route-accepts? r m)) rs) e #f)]))
 
 (define (spawn-world . boot-actions)
   (spawn world-handle-event
