@@ -181,6 +181,7 @@
 	    (w (struct-copy world w [next-pid (+ new-pid 1)]))
 	    (w (struct-copy world w [process-table
 				     (hash-set (world-process-table w) new-pid new-p)])))
+       (log-info "Spawned process ~a ~v ~v" new-pid (process-behavior new-p) (process-state new-p))
        (issue-routing-update w))]
     [(quit)
      (when (hash-has-key? (world-process-table w) pid) (log-info "Process ~a terminating" pid))

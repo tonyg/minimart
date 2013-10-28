@@ -34,7 +34,6 @@
 	(begin (log-info "run-ground: Terminating because inert")
 	       (void))
 	(let ((e (apply sync event-list)))
-	  (log-info "Woke: ~v" e)
 	  (match (deliver-event e -2 p)
 	    [#f ;; inert
 	     (await-interrupt #t p active-events)]
