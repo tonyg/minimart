@@ -1,13 +1,14 @@
 #lang racket/base
 
 (require racket/set)
+(require racket/match)
 (require "core.rkt")
 (require "pattern.rkt")
 
 (provide (except-out (struct-out presence-detector) presence-detector)
 	 (rename-out [make-presence-detector presence-detector])
 	 presence-detector-update
-	 presence-exists-for?)
+	 presence-detector-routes)
 
 (struct presence-detector (route-set) #:transparent)
 
@@ -21,8 +22,5 @@
 	  (set-subtract new-route-set old-route-set)
 	  (set-subtract old-route-set new-route-set)))
 
-(define (presence-exists-for? p probe-route)
-  (for/or ((existing-route (in-set (presence-detector-route-set p))))
-    (and (equal? (route-subscription? probe-route) (route-subscription? existing-route))
-	 (equal? (route-meta-level probe-route) (route-meta-level existing-route))
-	 (intersect? (route-pattern probe-route) (route-pattern existing-route)))))
+(define (presence-detector-routes p)
+  (set->list (presence-detector-route-set p)))
