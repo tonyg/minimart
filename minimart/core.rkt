@@ -88,7 +88,7 @@
 		     (= (route-meta-level r1) (route-meta-level r2))
 		     (< (route-level r1) (route-level r2)))
 		(intersect (route-pattern r1) (route-pattern r2)
-			   (lambda (rr) (loop2 rs2 (cons rr acc)))
+			   (lambda (rr) (loop2 rs2 (cons (struct-copy route r1 [pattern rr]) acc)))
 			   (lambda () (loop2 rs2 acc)))
 		(loop2 rs2 acc))]))])))
 
