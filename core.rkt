@@ -168,6 +168,7 @@
 				     (hash-set (world-process-table w) new-pid new-p)])))
        (issue-routing-update w))]
     [(quit)
+     (when (hash-has-key? (world-process-table w) pid) (log-info "Process ~a terminating" pid))
      (let* ((w (struct-copy world w [process-table (hash-remove (world-process-table w) pid)])))
        (issue-routing-update w))]
     [(routing-update routes)
