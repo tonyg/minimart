@@ -117,7 +117,12 @@
 		   (lambda (exn)
 		     (log-error "Process ~a died with exception:\n~a" pid (exn->string exn))
 		     (transition (process-state p) (list (quit))))])
-    ((process-behavior p) e (process-state p))))
+    (match ((process-behavior p) e (process-state p))
+      [#f #f]
+      [(? transition? t) t]
+      [x
+       (log-error "Process ~a returned non-#f, non-transition: ~v" pid x)
+       (transition (process-state p) (list (quit)))])))
 
 (define (apply-transition pid t w)
   (match t
