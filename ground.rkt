@@ -3,7 +3,6 @@
 (require racket/match)
 (require racket/list)
 (require "core.rkt")
-(require "pattern.rkt")
 
 (provide (struct-out event)
 	 run-actor)

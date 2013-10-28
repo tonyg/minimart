@@ -12,6 +12,8 @@
 	 (struct-out quit)
 	 (struct-out process)
 	 (struct-out transition)
+	 ? ;; imported from pattern.rkt
+	 wildcard?
 	 sub
 	 pub
 	 spawn
