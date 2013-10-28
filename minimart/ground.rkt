@@ -35,7 +35,7 @@
 	       (void))
 	(let ((e (apply sync event-list)))
 	  (log-info "Woke: ~v" e)
-	  (match (deliver-event e -1 p)
+	  (match (deliver-event e -2 p)
 	    [#f ;; inert
 	     (await-interrupt #t p active-events)]
 	    [(transition new-state actions)
