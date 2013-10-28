@@ -18,6 +18,7 @@
 	 send
 	 feedback
 	 spawn-world
+	 deliver-event
 	 transition-bind
 	 sequence-transitions)
 
@@ -105,7 +106,7 @@
   (and (queue-empty? (world-event-queue w))
        (queue-empty? (world-process-actions w))))
 
-(define (deliver e pid p)
+(define (deliver-event e pid p)
   (with-handlers ([(lambda (exn) #t)
 		   (lambda (exn)
 		     (log-error "Process ~a died with exception:\n~a" pid (exn->string exn))
@@ -120,7 +121,7 @@
 (define (step-children w)
   (let-values (((w step-taken?)
 		(for/fold ([w w] [step-taken? #f]) (((pid p) (in-hash (world-process-table w))))
-		  (define t (deliver #f pid p))
+		  (define t (deliver-event #f pid p))
 		  (if t
 		      (values (apply-transition pid t w) #t)
 		      (values w step-taken?)))))
@@ -188,7 +189,7 @@
   (for/fold ([w w]) (((pid p) (in-hash (world-process-table w))))
     (define e1 (filter-event e (process-routes p)))
     (if e1
-	(apply-transition pid (deliver e1 pid p) w)
+	(apply-transition pid (deliver-event e1 pid p) w)
 	w)))
 
 (define (world-handle-event e w)
