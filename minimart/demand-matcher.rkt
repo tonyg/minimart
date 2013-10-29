@@ -109,8 +109,8 @@
 			      [decrease-handler unexpected-supply-decrease]
 			      #:demand-is-subscription? [demand-is-subscription? #t]
 			      #:meta-level [meta-level 0]
-			      #:demand-level demand-level
-			      #:supply-level supply-level)
+			      #:demand-level [demand-level 0]
+			      #:supply-level [supply-level 0])
   (define d (make-demand-matcher demand-is-subscription?
 				 pattern
 				 meta-level

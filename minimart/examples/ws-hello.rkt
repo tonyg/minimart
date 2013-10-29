@@ -10,8 +10,6 @@
 
 (spawn-demand-matcher (websocket-message any-client server-id ?)
 		      #:demand-is-subscription? #f
-		      #:demand-level 0
-		      #:supply-level 0
 		      (match-lambda ;; arrived-demand-route, i.e. new connection publisher
 		       [(route _ (websocket-message c _ _) _ _)
 			(spawn-connection-handler c)]
