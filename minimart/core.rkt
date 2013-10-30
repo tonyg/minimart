@@ -60,7 +60,7 @@
 (define (feedback body #:meta-level [ml 0]) (message body ml #t))
 
 (define (drop-routes rs) (filter-map drop-route rs))
-(define (lift-routes rs) (map lift-routes rs))
+(define (lift-routes rs) (map lift-route rs))
 
 (define (co-route r #:level [level-override #f])
   (match-define (route sub? pat ml l) r)
