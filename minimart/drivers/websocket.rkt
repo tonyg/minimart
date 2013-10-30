@@ -66,37 +66,40 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Connection
 
-(struct connection-state (seen-peer? local-id port c shutdown-procedure) #:transparent)
+(struct connection-state (seen-peer? local-id port c [shutdown-procedure #:mutable])
+	#:transparent)
 
 (define (shutdown-connection state)
-  (if (connection-state-shutdown-procedure state)
-      (begin ((connection-state-shutdown-procedure state))
-	     (transition (struct-copy connection-state state [shutdown-procedure #f]) (quit)))
-      state))
+  (when (connection-state-shutdown-procedure state)
+    ((connection-state-shutdown-procedure state))
+    (set-connection-state-shutdown-procedure! state #f))
+  (transition state (quit)))
 
 (define (websocket-connection e state)
-  (match e
-    [(message (event _ _) 1 #f)
-     (match-define (connection-state seen-peer? local-id port c _) state)
-     (and seen-peer?
-	  (let ((m (ws-recv c #:payload-type 'text)))
-	    (if (eof-object? m)
-		(shutdown-connection state)
-		(transition state (send (websocket-message local-id
-							   (websocket-server port)
-							   m))))))]
-    [(message (websocket-message _ _ m) 0 #f)
-     (ws-send! (connection-state-c state) m)
-     #f]
-    [(routing-update routes)
-     (cond
-      [(and (connection-state-seen-peer? state) (null? routes))
-       (shutdown-connection state)]
-      [(and (not (connection-state-seen-peer? state)) (pair? routes))
-       (transition (struct-copy connection-state state [seen-peer? #t]) '())]
-      [else
-       #f])]
-    [#f #f]))
+  (with-handlers [((lambda (exn) #t)
+		   (lambda (exn) (shutdown-connection state)))]
+    (match e
+      [(message (event _ _) 1 #f)
+       (match-define (connection-state seen-peer? local-id port c _) state)
+       (and seen-peer?
+	    (let ((m (ws-recv c #:payload-type 'text)))
+	      (if (eof-object? m)
+		  (shutdown-connection state)
+		  (transition state (send (websocket-message local-id
+							     (websocket-server port)
+							     m))))))]
+      [(message (websocket-message _ _ m) 0 #f)
+       (ws-send! (connection-state-c state) m)
+       #f]
+      [(routing-update routes)
+       (cond
+	[(and (connection-state-seen-peer? state) (null? routes))
+	 (shutdown-connection state)]
+	[(and (not (connection-state-seen-peer? state)) (pair? routes))
+	 (transition (struct-copy connection-state state [seen-peer? #t]) '())]
+	[else
+	 #f])]
+      [#f #f])))
 
 (define (spawn-connection port c shutdown-procedure)
   (define local-id (websocket-remote-client (gensym 'ws)))
