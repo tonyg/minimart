@@ -9,7 +9,8 @@
 	 specialization?
 	 ground?
 	 intersect
-	 intersect?)
+	 intersect?
+	 pattern-subst)
 
 (struct exn:unification-failure ())
 (define unification-failure (exn:unification-failure))
@@ -105,3 +106,17 @@
   (with-handlers ([exn:unification-failure? (lambda (e) #f)])
     (unify a b)
     #t))
+
+(define (pattern-subst x from to)
+  (let walk ((x x))
+    (cond
+     [(equal? x from) to]
+     [(pair? x) (cons (walk (car x)) (walk (cdr x)))]
+     [(vector? x) (for/vector ([e (in-vector x)]) (walk e))]
+     [(non-object-struct? x)
+      (define-values (tx tx-skipped?) (struct-info x))
+      (when tx-skipped?
+	(error 'pattern-subst "Cannot substitute in (partially-)opaque structs: ~v" x))
+      (vector->struct (walk (struct->vector x #f)) tx)]
+     [(hash? x) (for/hash ([(k v) (in-hash x)]) (values k (walk v)))]
+     [else x])))
