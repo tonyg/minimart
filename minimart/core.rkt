@@ -25,10 +25,12 @@
 	 spawn-world
 	 deliver-event
 	 transition-bind
-	 sequence-transitions)
+	 sequence-transitions
+
+	 log-events-and-actions?)
 
 (define pid-stack (make-parameter '()))
-(define log-events-and-actions? #f)
+(define log-events-and-actions? (make-parameter #f))
 
 (struct route (subscription? pattern meta-level level) #:prefab)
 
@@ -121,7 +123,7 @@
 
 (define (deliver-event e pid p)
   (parameterize ((pid-stack (cons pid (pid-stack))))
-    (when (and log-events-and-actions? e)
+    (when (and (log-events-and-actions?) e)
       (log-info "~a: ~v --> ~v ~v"
 		(reverse (pid-stack))
 		e
@@ -145,7 +147,7 @@
     [#f w]
     [(transition new-state new-actions)
      (let* ((w (transform-process pid w (lambda (p)
-					  (when (and log-events-and-actions?
+					  (when (and (log-events-and-actions?)
 						     (not (null? (flatten new-actions))))
 					    (log-info "~a: ~v <-- ~v ~v"
 						      (reverse (cons pid (pid-stack)))
