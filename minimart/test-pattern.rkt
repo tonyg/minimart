@@ -28,3 +28,13 @@
 (check-equal? (intersect-or-void (b 'a) (b 'a)) (b 'a))
 (check-equal? (intersect-or-void (b 'a) (b ?)) (b 'a))
 (check-equal? (intersect-or-void (b 'a) ?) (b 'a))
+
+(check-equal? (intersect-or-void (hash 'a 1 'b ?) (hash 'a ? 'b 2)) (hash 'a 1 'b 2))
+(check-equal? (intersect-or-void (hash 'a 1 'b ?) (hash 'a ?)) (void))
+(check-equal? (intersect-or-void (hash 'a 1 'b ?) (hash 'a 1 'b ?)) (hash 'a 1 'b ?))
+(check-equal? (intersect-or-void (hash 'a 1 'b ?) (hash 'a ? 'c ?)) (void))
+
+(check-equal? (intersect-or-void (hash 'a 1 'b ?) (hash 'a 1 'b (list 2 ?)))
+	      (hash 'a 1 'b (list 2 ?)))
+(check-equal? (intersect-or-void (hash 'a 1 'b (list ? 3)) (hash 'a 1 'b (list 2 ?)))
+	      (hash 'a 1 'b (list 2 3)))

@@ -1,5 +1,6 @@
 #lang racket/base
 
+(require racket/set)
 (require racket/match)
 (require (only-in racket/class object?))
 
@@ -41,6 +42,10 @@
       (for/and ([aa a] [bb b]) (walk aa bb))]
      [(and (non-object-struct? a) (non-object-struct? b))
       (walk (struct->vector a #f) (struct->vector b #f))]
+     [(and (hash? a) (hash? b))
+      (for/and ([k (in-hash-keys b)])
+	(and (hash-has-key? a k)
+	     (walk (hash-ref a k) (hash-ref b k))))]
      [else (equal? a b)])))
 
 ;; Any -> Boolean
@@ -53,6 +58,7 @@
      [(pair? x) (and (walk (car x)) (walk (cdr x)))]
      [(vector? x) (andmap walk (vector->list x))]
      [(non-object-struct? x) (walk (struct->vector x #f))]
+     [(hash? x) (for/and ([v (in-hash-values x)]) (walk v))]
      [else #t])))
 
 ;; Vector StructType -> Struct
@@ -76,6 +82,11 @@
     (when ta-skipped? (fail))
     (when tb-skipped? (fail))
     (vector->struct (unify (struct->vector a) (struct->vector b)) ta)]
+   [(and (hash? a) (hash? b))
+    (for/hash ([k (in-set (set-union (list->set (hash-keys a)) (list->set (hash-keys b))))])
+      (when (not (hash-has-key? a k)) (fail))
+      (when (not (hash-has-key? b k)) (fail))
+      (values k (unify (hash-ref a k) (hash-ref b k))))]
    [(equal? a b)
     a]
    [else (fail)]))
