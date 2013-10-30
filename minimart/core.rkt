@@ -69,9 +69,7 @@
 (define (route-accepts? r m)
   (and (= (message-meta-level m) (route-meta-level r))
        (equal? (message-feedback? m) (not (route-subscription? r)))
-       (intersect (message-body m) (route-pattern r)
-		  (lambda (dummy) #t)
-		  (lambda () #f))))
+       (intersect? (message-body m) (route-pattern r))))
 
 (define (intersect-routes rs1 rs2)
   (let loop1 ((rs1 rs1)
