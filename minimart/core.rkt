@@ -27,6 +27,9 @@
 	 transition-bind
 	 sequence-transitions)
 
+(define pid-stack (make-parameter '()))
+(define log-events-and-actions? #f)
+
 (struct route (subscription? pattern meta-level level) #:prefab)
 
 ;; Events
@@ -117,22 +120,41 @@
        (queue-empty? (world-process-actions w))))
 
 (define (deliver-event e pid p)
-  (with-handlers ([(lambda (exn) #t)
-		   (lambda (exn)
-		     (log-error "Process ~a died with exception:\n~a" pid (exn->string exn))
-		     (transition (process-state p) (list (quit))))])
-    (match ((process-behavior p) e (process-state p))
-      [#f #f]
-      [(? transition? t) t]
-      [x
-       (log-error "Process ~a returned non-#f, non-transition: ~v" pid x)
-       (transition (process-state p) (list (quit)))])))
+  (parameterize ((pid-stack (cons pid (pid-stack))))
+    (when (and log-events-and-actions? e)
+      (log-info "~a: ~v --> ~v ~v"
+		(reverse (pid-stack))
+		e
+		(process-behavior p)
+		(if (world? (process-state p))
+		    "#<world>"
+		    (process-state p))))
+    (with-handlers ([(lambda (exn) #t)
+		     (lambda (exn)
+		       (log-error "Process ~a died with exception:\n~a" pid (exn->string exn))
+		       (transition (process-state p) (list (quit))))])
+      (match ((process-behavior p) e (process-state p))
+	[#f #f]
+	[(? transition? t) t]
+	[x
+	 (log-error "Process ~a returned non-#f, non-transition: ~v" pid x)
+	 (transition (process-state p) (list (quit)))]))))
 
 (define (apply-transition pid t w)
   (match t
     [#f w]
     [(transition new-state new-actions)
-     (let* ((w (transform-process pid w (lambda (p) (struct-copy process p [state new-state])))))
+     (let* ((w (transform-process pid w (lambda (p)
+					  (when (and log-events-and-actions?
+						     (not (null? (flatten new-actions))))
+					    (log-info "~a: ~v <-- ~v ~v"
+						      (reverse (cons pid (pid-stack)))
+						      new-actions
+						      (process-behavior p)
+						      (if (world? new-state)
+							  "#<world>"
+							  new-state)))
+					  (struct-copy process p [state new-state])))))
        (enqueue-actions w pid new-actions))]))
 
 (define (step-children w)
