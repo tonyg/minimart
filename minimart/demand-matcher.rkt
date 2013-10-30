@@ -20,10 +20,10 @@
 	#:transparent)
 
 (define (unexpected-supply-decrease r)
-  (error 'demand-matcher "Unexpected decrease in supply for route ~a" r))
+  '())
 
 (define (default-decrease-handler removed state)
-  (unexpected-supply-decrease removed))
+  state)
 
 (define (make-demand-matcher demand-is-subscription?
 			     pattern
