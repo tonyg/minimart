@@ -49,6 +49,10 @@
 ;; Behavior : maybe event * state -> transition
 (struct transition (state actions) #:transparent)
 
+;; Process table maps to these; idea is to avoid redundant signalling
+;; of routing-updates where possible
+(struct trigger-guard (process downward-routes) #:transparent)
+
 (define (drop-route r)
   (match-define (route s? p ml l) r)
   (and (positive? ml) (route s? p (- ml 1) l)))
@@ -146,22 +150,25 @@
   (match t
     [#f w]
     [(transition new-state new-actions)
-     (let* ((w (transform-process pid w (lambda (p)
-					  (when (and (log-events-and-actions?)
-						     (not (null? (flatten new-actions))))
-					    (log-info "~a: ~v <-- ~v ~v"
-						      (reverse (cons pid (pid-stack)))
-						      new-actions
-						      (process-behavior p)
-						      (if (world? new-state)
-							  "#<world>"
-							  new-state)))
-					  (struct-copy process p [state new-state])))))
+     (let* ((w (transform-process pid w
+				  (lambda (p)
+				    (when (and (log-events-and-actions?)
+					       (not (null? (flatten new-actions))))
+				      (log-info "~a: ~v <-- ~v ~v"
+						(reverse (cons pid (pid-stack)))
+						new-actions
+						(process-behavior p)
+						(if (world? new-state)
+						    "#<world>"
+						    new-state)))
+				    (struct-copy process p [state new-state]))
+				  values)))
        (enqueue-actions w pid new-actions))]))
 
 (define (step-children w)
   (let-values (((w step-taken?)
-		(for/fold ([w w] [step-taken? #f]) (((pid p) (in-hash (world-process-table w))))
+		(for/fold ([w w] [step-taken? #f]) (((pid g) (in-hash (world-process-table w))))
+		  (match-define (trigger-guard p _) g)
 		  (define t (deliver-event #f pid p))
 		  (values (apply-transition pid t w)
 			  (or step-taken? (transition? t))))))
@@ -187,14 +194,22 @@
 		(dispatch-event e w))
               '()))
 
-(define (transform-process pid w f)
-  (define p (hash-ref (world-process-table w) pid))
-  (if p
-      (struct-copy world w [process-table (hash-set (world-process-table w) pid (f p))])
-      w))
+(define (transform-process pid w fp frs)
+  (match (hash-ref (world-process-table w) pid)
+    [#f w]
+    [(trigger-guard p downward-rs)
+     (struct-copy world w
+       [process-table (hash-set (world-process-table w)
+				pid
+				(trigger-guard (fp p) (frs downward-rs)))])]))
 
 (define (enqueue-event e w)
   (struct-copy world w [event-queue (enqueue (world-event-queue w) e)]))
+
+(define (upward-routes-change-ignorable? pid w rs)
+  (match (hash-ref (world-process-table w) pid)
+    [#f #t]
+    [(trigger-guard p _) (equal? (process-routes p) rs)]))
 
 (define ((perform-action pid a) w)
   (match a
@@ -202,7 +217,9 @@
      (let* ((new-pid (world-next-pid w))
 	    (w (struct-copy world w [next-pid (+ new-pid 1)]))
 	    (w (struct-copy world w [process-table
-				     (hash-set (world-process-table w) new-pid new-p)])))
+				     (hash-set (world-process-table w)
+					       new-pid
+					       (trigger-guard new-p '()))])))
        (log-info "Spawned process ~a ~v ~v" new-pid (process-behavior new-p) (process-state new-p))
        (issue-routing-update w))]
     [(quit)
@@ -210,15 +227,22 @@
      (let* ((w (struct-copy world w [process-table (hash-remove (world-process-table w) pid)])))
        (issue-routing-update w))]
     [(routing-update routes)
-     (let* ((w (transform-process pid w (lambda (p) (struct-copy process p [routes routes])))))
-       (issue-routing-update w))]
+     (if (upward-routes-change-ignorable? pid w routes)
+	 (transition w '())
+	 (let* ((w (transform-process pid w
+				      (lambda (p) (struct-copy process p [routes routes]))
+				      values)))
+	   (issue-routing-update w)))]
     [(message body meta-level feedback?)
      (if (zero? meta-level)
 	 (transition (enqueue-event a w) '())
 	 (transition w (message body (- meta-level 1) feedback?)))]))
 
 (define (aggregate-routes base w)
-  (apply append base (for/list ((p (in-hash-values (world-process-table w)))) (process-routes p))))
+  (apply append
+	 base
+	 (for/list ((g (in-hash-values (world-process-table w))))
+	   (process-routes (trigger-guard-process g)))))
 
 (define (issue-local-routing-update w)
   (enqueue-event (routing-update (aggregate-routes (world-downward-routes w) w)) w))
@@ -228,11 +252,18 @@
               (routing-update (drop-routes (aggregate-routes '() w)))))
 
 (define (dispatch-event e w)
-  (for/fold ([w w]) (((pid p) (in-hash (world-process-table w))))
+  (for/fold ([w w]) (((pid g) (in-hash (world-process-table w))))
+    (match-define (trigger-guard p old-downward-rs) g)
     (define e1 (filter-event e (process-routes p)))
-    (if e1
-	(apply-transition pid (deliver-event e1 pid p) w)
-	w)))
+    (match e1
+      [#f w]
+      [(routing-update new-downward-rs)
+       (if (equal? old-downward-rs new-downward-rs)
+	   w
+	   (transform-process pid (apply-transition pid (deliver-event e1 pid p) w)
+			      values
+			      (lambda (old-rs) new-downward-rs)))]
+      [_ (apply-transition pid (deliver-event e1 pid p) w)])))
 
 (define (world-handle-event e w)
   (if (or e (not (quiescent? w)))
