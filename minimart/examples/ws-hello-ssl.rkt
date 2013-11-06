@@ -6,7 +6,8 @@
 (spawn-websocket-driver)
 
 (define any-client (websocket-remote-client ?))
-(define server-id (websocket-server 8081 #f))
+(define server-id (websocket-server 8081 (websocket-ssl-options "server-cert.pem"
+								"private-key.pem")))
 
 (spawn-demand-matcher (websocket-message any-client server-id ?)
 		      #:demand-is-subscription? #f
