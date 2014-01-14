@@ -6,7 +6,7 @@
 (spawn-websocket-driver)
 
 (define any-client (websocket-remote-client ?))
-(define server-id (websocket-server 8081 #f))
+(define server-id (websocket-local-server 8081 #f))
 
 (spawn-demand-matcher (websocket-message any-client server-id ?)
 		      #:demand-is-subscription? #f

@@ -11,7 +11,7 @@
 (require net/ssl-tcp-unit)
 
 (provide (struct-out websocket-remote-client)
-	 (struct-out websocket-server)
+	 (struct-out websocket-local-server)
 	 (struct-out websocket-ssl-options)
 	 (struct-out websocket-message)
 	 spawn-websocket-driver)
@@ -20,7 +20,7 @@
 ;; Protocol messages
 
 (struct websocket-remote-client (id) #:prefab)
-(struct websocket-server (port ssl-options) #:prefab)
+(struct websocket-local-server (port ssl-options) #:prefab)
 (struct websocket-ssl-options (cert-file key-file) #:prefab)
 (struct websocket-message (from to body) #:prefab)
 
@@ -28,7 +28,7 @@
 ;; Driver
 
 (define (spawn-websocket-driver)
-  (spawn-demand-matcher (websocket-message ? (websocket-server ? ?) ?)
+  (spawn-demand-matcher (websocket-message ? (websocket-local-server ? ?) ?)
 			#:demand-level 1
 			#:supply-level 2
 			(match-lambda
@@ -71,7 +71,7 @@
   ssl-tcp@)
 
 (define (spawn-websocket-listener server-addr)
-  (match-define (websocket-server port ssl-options) server-addr)
+  (match-define (websocket-local-server port ssl-options) server-addr)
   (define ch (make-channel))
   (define shutdown-procedure (ws-serve #:port port
 				       #:tcp@ (if ssl-options
