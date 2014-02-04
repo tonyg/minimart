@@ -139,7 +139,9 @@
 		     (lambda (exn)
 		       (log-error "Process ~a died with exception:\n~a" pid (exn->string exn))
 		       (transition (process-state p) (list (quit))))])
-      (match ((process-behavior p) e (process-state p))
+      (match (with-continuation-mark 'minimart-process
+				     pid ;; TODO: debug-name, other user annotation
+				     ((process-behavior p) e (process-state p)))
 	[#f #f]
 	[(? transition? t) t]
 	[x
