@@ -547,6 +547,8 @@
   (check-equal? (intersect (b 'a) (b ?)) (rseq* struct:b 'a EOS EAB))
   (check-equal? (intersect (b 'a) ?) (rseq* struct:b 'a EOS EAB))
 
+  (check-equal? (intersect (a 'a) (b 'a)) #f)
+
   (check-exn #px"Cannot match on hash tables at present"
 	     (lambda ()
 	       (intersect (hash 'a 1 'b ?) (hash 'a ? 'b 2))))
