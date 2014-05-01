@@ -13,7 +13,8 @@
 	     #:run-time [run-time 10000])
   (define total-latency 0)
   (define total-roundtrips 0)
-  (define run-start-time (current-inexact-milliseconds))
+  (define boot-start-time (current-inexact-milliseconds))
+  (define run-start-time #f)
 
   (define (rate-at count)
     (/ (* count 2) ;; two messages per roundtrip
@@ -23,6 +24,9 @@
   (define (pinger src dst)
     (spawn (lambda (e s)
 	     (match e
+	       [(message 'kickoff _ _)
+		(set! run-start-time (current-inexact-milliseconds))
+		(transition s (send-ping src dst))]
 	       [(message (ping (== dst) (== src) start-time) _ _)
 		(define stop-time (current-inexact-milliseconds))
 		(define delta (- stop-time start-time))
@@ -40,6 +44,7 @@
 	       [_ #f]))
 	   #f
 	   (list (sub (ping dst src ?))
+		 (sub 'kickoff)
 		 (pub (ping src dst ?)))))
 
   (define (echoer id)
@@ -55,12 +60,12 @@
   (begin
     (run-ground (for/list [(id (in-range echoer-count))] (echoer id))
 		(pinger echoer-count 0)
-		(send-ping echoer-count 0))
-    (values total-roundtrips (rate-at total-roundtrips))))
+		(send 'kickoff))
+    (values total-roundtrips (rate-at total-roundtrips) (- run-start-time boot-start-time))))
 
 (module+ main
   (define t 5000)
-  (printf "Num echoers,Run duration (ms),Num roundtrips,Msgs/sec,Sec/msg\n")
+  (printf "Num echoers,Run duration (ms),Boot delay (ms),Num roundtrips,Msgs/sec,Sec/msg\n")
   (for ((n
 	 (list 1 10 20 30 40 50 60 70 80 90 100 120
 	       150 200 210 220 230 240 250 260 270 280 290 300 400
@@ -69,6 +74,6 @@
     (collect-garbage)
     (collect-garbage)
     (collect-garbage)
-    (define-values (count v) (run #:echoer-count n #:run-time t))
-    (printf "~a,~a,~a,~a,~a\n" n t count v (/ 1.0 v))
+    (define-values (count v boot-delay-ms) (run #:echoer-count n #:run-time t))
+    (printf "~a,~a,~a,~a,~a,~a\n" n t boot-delay-ms count v (/ 1.0 v))
     (flush-output)))
