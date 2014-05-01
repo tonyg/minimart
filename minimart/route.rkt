@@ -90,7 +90,7 @@
   (hash-ref r key (lambda () #f)))
 
 (define (rupdate r key k)
-  (if k
+  (if (and k (not (rempty? k)))
       (hash-set r key k)
       (hash-remove r key)))
 
@@ -120,7 +120,7 @@
 	[(r1 r2) (walk r1 r2)]))
     (define (walk re1 re2)
       (match* (re1 re2)
-	[((wildcard-sequence r1) (wildcard-sequence r2)) (wildcard-sequence (walk r1 r2))]
+	[((wildcard-sequence r1) (wildcard-sequence r2)) (rwildseq (walk r1 r2))]
 	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
 	[(r1 (wildcard-sequence r2)) (walk (expand-wildseq r2) r1)]
 	[((? set? v1) (? set? v2)) (set-union v1 v2)]
@@ -131,7 +131,7 @@
 	  [(< (hash-count h2) (hash-count h1)) (merge/no-wildcard h2 h1)]
 	  [else (merge/no-wildcard h1 h2)])]))
     (define (merge/wildcard w h1 h2)
-      (for/fold [(acc (hash ? w))]
+      (for/fold [(acc (rwild w))]
 	  [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
 	(define k (merge (rlookup h1 key) (rlookup h2 key)))
 	(rupdate acc
@@ -162,22 +162,77 @@
 	 (define w1 (rlookup h1 ?))
 	 (define w2 (rlookup h2 ?))
 	 (define w (and w1 w2 (walk w1 w2)))
-	 (for/fold [(acc (if w (hash ? w) (hash)))]
+	 ;; TODO: if, say, w1 is #f, then we don't need to examine
+	 ;; every key in h2. So there are four cases:
+	 ;;  - both false -> examine the intersection of the key sets
+	 ;;                  (done by enumerating keys in the smaller hash)
+	 ;;  - one nonfalse -> examine only the keys in the other
+	 ;;  - both nonfalse -> examine the union of the key sets
+	 ;; This is important for avoiding examination of the whole
+	 ;; structure when wildcards aren't being used.
+	 (for/fold [(acc (if w (rwild w) (hash)))]
 	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
 	   (rupdate acc
 		    key
 		    (match* ((rlookup h1 key) (rlookup h2 key))
 		      [(#f #f) #f]
-		      [(#f k2) (merge-wild w1 key k2)]
-		      [(k1 #f) (merge-wild w2 key k1)]
+		      [(#f k2) (walk-wild w1 key k2)]
+		      [(k1 #f) (walk-wild w2 key k1)]
 		      [(k1 k2) (walk k1 k2)])))]))
-    (define (merge-wild w key k)
+    (define (walk-wild w key k)
       (and w (cond
 	      [(key-open? key) (walk (rwildseq w) k)]
 	      [(key-close? key) (if (wildcard-sequence? w)
 				    (walk (wildcard-sequence-matcher w) k)
 				    #f)]
 	      [else (walk w k)])))
+    walk))
+
+(define erase-path
+  (let ()
+    (define (cofinite-pattern)
+      (error 'erase-path "Cofinite pattern required"))
+    (define (walk path aggregate)
+      (match* (path aggregate)
+	[((wildcard-sequence r1) (wildcard-sequence r2))
+	 (define r (walk r1 r2))
+	 (and r (rwildseq r))]
+	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
+	[(r1 (wildcard-sequence r2)) (cofinite-pattern)]
+	[((? set? v1) (? set? v2))
+	 (define v (set-subtract v2 v1))
+	 (if (set-empty? v) #f v)]
+	[((? hash? h1) (? hash? h2))
+	 (define w1 (rlookup h1 ?))
+	 (define w2 (rlookup h2 ?))
+	 (define w (match* (w1 w2)
+		     [(#f #f) #f]
+		     [(#f r) r]
+		     [(r #f) (cofinite-pattern)]
+		     [(r1 r2) (walk r1 r2)]))
+	 ;; TODO: only need to examine all keys of h2 if w1 nonfalse.
+	 ;; TODO: need to ensure "minimal" remainder in cases where
+	 ;; after an erasure, a particular key's continuation is the
+	 ;; same as the wildcard's continuation. See tests/examples
+	 ;; below.
+	 (for/fold [(acc (if w (rwild w) (hash)))]
+	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+	   (rupdate acc
+		    key
+		    (match* ((rlookup h1 key) (rlookup h2 key))
+		      [(#f #f) #f]
+		      [(#f k2) (walk-wild w1 key k2)]
+		      [(k1 #f) (cofinite-pattern)]
+		      [(k1 k2) (walk k1 k2)])))]))
+    (define (walk-wild w key k)
+      (if w
+	  (cond
+	   [(key-open? key) (walk (rwildseq w) k)]
+	   [(key-close? key) (if (wildcard-sequence? w)
+				 (walk (wildcard-sequence-matcher w) k)
+				 k)]
+	   [else (walk w k)])
+	  k))
     walk))
 
 (define (match-value r v)
@@ -240,15 +295,17 @@
 	 (for ((v vs)) (d v))
 	 (d "}")]
 	[(? hash? h)
-	 (for/fold [(need-sep? #f)] [((key k) (in-hash h))]
-	   (when need-sep?
-	     (newline port)
-	     (d (make-string i #\space)))
-	   (d " ")
-	   (define keystr (call-with-output-string (lambda (p) (display key p))))
-	   (d keystr)
-	   (walk (+ i 1 (string-length keystr)) k)
-	   #t)]))
+	 (if (zero? (hash-count h))
+	     (d " ::: empty hash!")
+	     (for/fold [(need-sep? #f)] [((key k) (in-hash h))]
+	       (when need-sep?
+		 (newline port)
+		 (d (make-string i #\space)))
+	       (d " ")
+	       (define keystr (call-with-output-string (lambda (p) (display key p))))
+	       (d keystr)
+	       (walk (+ i 1 (string-length keystr)) k)
+	       #t))]))
     (newline port)
     (walk 0 m)
     (newline port)
@@ -418,5 +475,27 @@
    (list 'Z (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) "XZ"
    (list 'Z '((()) - -)) "XZ+"
    (list '? (list '- '- '-)) "")
+
+  (let* ((r1 (pattern->matcher 'A (list  ? 'b)))
+	 (r2 (pattern->matcher 'B (list 'a  ?)))
+	 (r12 (ror r1 r2)))
+    (printf "\n-=-=-=-=-=-=-=-=- erase1\n")
+    (pretty-print-matcher r1)
+    (pretty-print-matcher r2)
+    (pretty-print-matcher r12)
+    ;; TODO: these next two are not currently "minimal"
+    (pretty-print-matcher (erase-path r1 r12))
+    (pretty-print-matcher (erase-path r2 r12))
+    (void))
+
+  (let* ((r1 (ror (pattern->matcher 'A (list 'a ?))
+		  (pattern->matcher 'A (list 'b ?))))
+	 (r2 (pattern->matcher 'B (list 'b ?)))
+	 (r12 (ror r1 r2)))
+    (printf "\n-=-=-=-=-=-=-=-=- erase2\n")
+    (pretty-print-matcher r12)
+    (pretty-print-matcher (erase-path r1 r12))
+    (pretty-print-matcher (erase-path r2 r12))
+    (void))
 
   )
