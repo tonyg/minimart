@@ -66,6 +66,13 @@
 (module+ main
   (define t 5000)
   (printf "Num echoers,Run duration (ms),Boot delay (ms),Num roundtrips,Msgs/sec,Sec/msg\n")
+  (flush-output)
+  ;; Warmup
+  (let ()
+    (run #:echoer-count 1 #:run-time 1000)
+    (run #:echoer-count 10 #:run-time 1000)
+    (void))
+  ;; Real run
   (for ((n
 	 (list 1 10 20 30 40 50 60 70 80 90 100 120
 	       150 200 210 220 230 240 250 260 270 280 290 300 400
