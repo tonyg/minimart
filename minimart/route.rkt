@@ -7,6 +7,9 @@
 
 (require rackunit)
 
+;; TODO: Harmonize usage of #f (indicating "empty matcher") and rnull/rempty?.
+;;       I suspect #f and not should entirely replace rnull and rempty?.
+
 (provide )
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
@@ -103,6 +106,10 @@
   (not (or (key-open? k)
 	   (key-close? k))))
 
+(define (expand-wildseq r)
+  (ror (rwild (rwildseq r))
+       (rseq EOS r)))
+
 (define ror
   (let ()
     (define (merge o1 o2)
@@ -111,32 +118,66 @@
 	[(#f r) r]
 	[(r #f) r]
 	[(r1 r2) (walk r1 r2)]))
-    (define (walk-wildseq wsr r) (walk (walk (rwild (rwildseq wsr)) (rseq EOS wsr)) r))
     (define (walk re1 re2)
       (match* (re1 re2)
 	[((wildcard-sequence r1) (wildcard-sequence r2)) (wildcard-sequence (walk r1 r2))]
-	[((wildcard-sequence r1) r2) (walk-wildseq r1 r2)]
-	[(r1 (wildcard-sequence r2)) (walk-wildseq r2 r1)]
+	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
+	[(r1 (wildcard-sequence r2)) (walk (expand-wildseq r2) r1)]
 	[((? set? v1) (? set? v2)) (set-union v1 v2)]
 	[((? hash? h1) (? hash? h2))
-	 (if (< (hash-count h2) (hash-count h1))
-	     (walk h2 h1)
-	     (let ((w (merge (rlookup h1 ?) (rlookup h2 ?))))
-	       (if w
-		   (let ((keys (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?)))
-		     (for/fold [(acc (hash ? w))] [(key keys)]
-		       (define k (merge (rlookup h1 key) (rlookup h2 key)))
-		       (rupdate acc
-				key
-				(cond
-				 [(key-open? key) (merge (rwildseq w) k)]
-				 [(key-close? key) (if (wildcard-sequence? w)
-						       (merge (wildcard-sequence-matcher w) k)
-						       k)]
-				 [else (merge w k)]))))
-		   (for/fold [(acc h2)] [((key k1) (in-hash h1))]
-		     (define k (merge k1 (rlookup h2 key)))
-		     (rupdate acc key k)))))]))
+	 (define w (merge (rlookup h1 ?) (rlookup h2 ?)))
+	 (cond
+	  [w (merge/wildcard w h1 h2)]
+	  [(< (hash-count h2) (hash-count h1)) (merge/no-wildcard h2 h1)]
+	  [else (merge/no-wildcard h1 h2)])]))
+    (define (merge/wildcard w h1 h2)
+      (for/fold [(acc (hash ? w))]
+	  [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+	(define k (merge (rlookup h1 key) (rlookup h2 key)))
+	(rupdate acc
+		 key
+		 (cond
+		  [(key-open? key) (merge (rwildseq w) k)]
+		  [(key-close? key) (if (wildcard-sequence? w)
+					(merge (wildcard-sequence-matcher w) k)
+					k)]
+		  [else (merge w k)]))))
+    (define (merge/no-wildcard h1 h2)
+      (for/fold [(acc h2)] [((key k1) (in-hash h1))]
+	(define k (merge k1 (rlookup h2 key)))
+	(rupdate acc key k)))
+    walk))
+
+(define rand
+  (let ()
+    (define (walk re1 re2)
+      (match* (re1 re2)
+	[((wildcard-sequence r1) (wildcard-sequence r2))
+	 (define r (walk r1 r2))
+	 (and r (rwildseq r))]
+	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
+	[(r1 (wildcard-sequence r2)) (walk (expand-wildseq r2) r1)]
+	[((? set? v1) (? set? v2)) (set-union v1 v2)]
+	[((? hash? h1) (? hash? h2))
+	 (define w1 (rlookup h1 ?))
+	 (define w2 (rlookup h2 ?))
+	 (define w (and w1 w2 (walk w1 w2)))
+	 (for/fold [(acc (if w (hash ? w) (hash)))]
+	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+	   (rupdate acc
+		    key
+		    (match* ((rlookup h1 key) (rlookup h2 key))
+		      [(#f #f) #f]
+		      [(#f k2) (merge-wild w1 key k2)]
+		      [(k1 #f) (merge-wild w2 key k1)]
+		      [(k1 k2) (walk k1 k2)])))]))
+    (define (merge-wild w key k)
+      (and w (cond
+	      [(key-open? key) (walk (rwildseq w) k)]
+	      [(key-close? key) (if (wildcard-sequence? w)
+				    (walk (wildcard-sequence-matcher w) k)
+				    #f)]
+	      [else (walk w k)])))
     walk))
 
 (define (match-value r v)
@@ -344,5 +385,38 @@
 		 (list 'a 'b 'c 'd 'e 'f) "A"
 		 (list 'b 'c 'd 'e 'f 'a) ""
 		 3 "")
+
+  (let ((r1 (ror (pattern->matcher 'A (list  ? 'b))
+		 (pattern->matcher 'A (list  ? 'c))))
+	(r2 (ror (pattern->matcher 'B (list 'a  ?))
+		 (pattern->matcher 'B (list 'b  ?)))))
+    (pretty-print-matcher (ror r1 r2))
+    (pretty-print-matcher (ror r1 r1))
+    (pretty-print-matcher (ror r2 r2))
+    (pretty-print-matcher (rand r1 r2))
+    (pretty-print-matcher (rand r1 r1))
+    (pretty-print-matcher (rand r2 r2))
+    (void))
+
+  (void (pretty-print-matcher (rand (bigdemo) (pattern->matcher 'X (list 'm 'n)))))
+
+  (check-matches
+   (pretty-print-matcher (rand (bigdemo) (pattern->matcher 'X (list 'Z ?))))
+   (list 'a '-) ""
+   (list 'Z '-) "XZ"
+   (list '? '-) ""
+   (list 'a (list '- '- '-)) ""
+   (list 'a (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) ""
+   (list 'Z) ""
+   (list 'Z 'x) "XZ"
+   (list 'Z (list)) "XZ"
+   (list 'Z (list '-)) "XZ"
+   (list 'Z (list '-)) "XZ"
+   (list 'Z (list '- '-)) "XZ"
+   (list 'Z (list '- '- '-)) "XZ+"
+   (list 'Z (list '- '- '- '-)) "XZ"
+   (list 'Z (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) "XZ"
+   (list 'Z '((()) - -)) "XZ+"
+   (list '? (list '- '- '-)) "")
 
   )
