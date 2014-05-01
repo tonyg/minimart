@@ -52,6 +52,12 @@
 (define (rwild r)    (rseq ? r))
 (define (rwildseq r) (if (rempty? r) r (wildcard-sequence r)))
 
+(define (rseq* x . xs)
+  (let walk ((xs (cons x xs)))
+    (match xs
+      [(list r) r]
+      [(cons e xs1) (rseq e (walk xs1))])))
+
 ;; Any -> Boolean
 ;; Racket objects are structures, so we reject them explicitly for
 ;; now, leaving them opaque to unification.
@@ -70,6 +76,8 @@
        (when skipped? (error 'pattern->matcher "Cannot reflect on struct instance ~v" p))
        (define fs (cdr (vector->list (struct->vector p))))
        (rseq t (foldr walk (rseq EOS acc) fs))]
+      ;; TODO: consider options for treating hash tables as compounds rather than (useless) atoms
+      [(? hash?) (error 'pattern->matcher "Cannot match on hash tables at present")]
       [other (rseq other acc)])))
 
 (module+ test
@@ -505,5 +513,51 @@
     (pretty-print-matcher (erase-path r1 r12))
     (pretty-print-matcher (erase-path r2 r12))
     (void))
+
+  )
+
+(module+ test
+  (struct a (x) #:prefab)
+  (struct b (x) #:transparent)
+
+  (define (intersect a b)
+    (rand (pattern->matcher 'A a)
+	  (pattern->matcher 'B b)))
+
+  (define EAB (E 'A 'B))
+
+  (check-equal? (intersect ? ?) (rwild EAB))
+  (check-equal? (intersect 'a ?) (rseq 'a EAB))
+  (check-equal? (intersect 123 ?) (rseq 123 EAB))
+  (check-equal? (intersect (cons ? 2) (cons 1 ?)) (rseq* SOP 1 2 EOS EAB))
+  (check-equal? (intersect (cons 1 2) ?) (rseq* SOP 1 2 EOS EAB))
+  (check-equal? (intersect 1 2) #f)
+  (check-equal? (intersect (cons 1 2) (cons ? 2)) (rseq* SOP 1 2 EOS EAB))
+  (check-equal? (intersect (cons 1 2) (cons 3 2)) #f)
+  (check-equal? (intersect (cons 1 2) (cons 1 3)) #f)
+  (check-equal? (intersect (vector 1 2) (vector 1 2)) (rseq* SOV 1 2 EOS EAB))
+  (check-equal? (intersect (vector 1 2) (vector 1 2 3)) #f)
+
+  (check-equal? (intersect (a 'a) (a 'b)) #f)
+  (check-equal? (intersect (a 'a) (a 'a)) (rseq* struct:a 'a EOS EAB))
+  (check-equal? (intersect (a 'a) (a ?)) (rseq* struct:a 'a EOS EAB))
+  (check-equal? (intersect (a 'a) ?) (rseq* struct:a 'a EOS EAB))
+  (check-equal? (intersect (b 'a) (b 'b)) #f)
+  (check-equal? (intersect (b 'a) (b 'a)) (rseq* struct:b 'a EOS EAB))
+  (check-equal? (intersect (b 'a) (b ?)) (rseq* struct:b 'a EOS EAB))
+  (check-equal? (intersect (b 'a) ?) (rseq* struct:b 'a EOS EAB))
+
+  (check-exn #px"Cannot match on hash tables at present"
+	     (lambda ()
+	       (intersect (hash 'a 1 'b ?) (hash 'a ? 'b 2))))
+  ;; (check-equal? (intersect (hash 'a 1 'b ?) (hash 'a ? 'b 2)) (hash 'a 1 'b 2))
+  ;; (check-equal? (intersect (hash 'a 1 'b ?) (hash 'a ?)) (void))
+  ;; (check-equal? (intersect (hash 'a 1 'b ?) (hash 'a 1 'b ?)) (hash 'a 1 'b ?))
+  ;; (check-equal? (intersect (hash 'a 1 'b ?) (hash 'a ? 'c ?)) (void))
+
+  ;; (check-equal? (intersect (hash 'a 1 'b ?) (hash 'a 1 'b (list 2 ?)))
+  ;; 		(hash 'a 1 'b (list 2 ?)))
+  ;; (check-equal? (intersect (hash 'a 1 'b (list ? 3)) (hash 'a 1 'b (list 2 ?)))
+  ;; 		(hash 'a 1 'b (list 2 3)))
 
   )
