@@ -3,7 +3,6 @@
 (require racket/set)
 (require racket/match)
 (require "core.rkt")
-(require "pattern.rkt")
 
 (provide (except-out (struct-out presence-detector) presence-detector)
 	 (rename-out [make-presence-detector presence-detector])
