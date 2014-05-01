@@ -7,9 +7,6 @@
 
 (require rackunit)
 
-;; TODO: Harmonize usage of #f (indicating "empty matcher") and rnull/rempty?.
-;;       I suspect #f and not should entirely replace rnull and rempty?.
-
 (provide )
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
@@ -37,6 +34,7 @@
 (define-singleton-struct ? wildcard "★") ;; alternative printing: ¿
 
 ;; A Matcher is either
+;; - #f, indicating no further matches possible
 ;; - a Set of Any, representing a successful match (if the end of the input has been reached)
 ;; - a Hashtable mapping (Sigma or wildcard) to Matcher
 ;; - a (wildcard-sequence Matcher)
@@ -45,11 +43,8 @@
 ;; table.
 (struct wildcard-sequence (matcher) #:transparent)
 
-(define (rnull) (hash))
-
-(define (rempty? r)
-  (and (hash? r)
-       (zero? (hash-count r))))
+(define (rnull) #f)
+(define (rempty? r) (not r))
 
 (define (rvalue v) (set v))
 
@@ -90,9 +85,9 @@
   (hash-ref r key (lambda () #f)))
 
 (define (rupdate r key k)
-  (if (and k (not (rempty? k)))
-      (hash-set r key k)
-      (hash-remove r key)))
+  (if (rempty? k)
+      (and r (hash-remove r key))
+      (hash-set (or r (hash)) key k)))
 
 (define (key-open? k)
   (or (eq? k SOP)
@@ -146,15 +141,17 @@
       (for/fold [(acc h2)] [((key k1) (in-hash h1))]
 	(define k (merge k1 (rlookup h2 key)))
 	(rupdate acc key k)))
-    walk))
+    (lambda (re1 re2)
+      (match* (re1 re2)
+	[(#f r) r]
+	[(r #f) r]
+	[(r1 r2) (walk r1 r2)]))))
 
 (define rand
   (let ()
     (define (walk re1 re2)
       (match* (re1 re2)
-	[((wildcard-sequence r1) (wildcard-sequence r2))
-	 (define r (walk r1 r2))
-	 (and r (rwildseq r))]
+	[((wildcard-sequence r1) (wildcard-sequence r2)) (rwildseq (walk r1 r2))]
 	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
 	[(r1 (wildcard-sequence r2)) (walk (expand-wildseq r2) r1)]
 	[((? set? v1) (? set? v2)) (set-union v1 v2)]
@@ -170,7 +167,7 @@
 	 ;;  - both nonfalse -> examine the union of the key sets
 	 ;; This is important for avoiding examination of the whole
 	 ;; structure when wildcards aren't being used.
-	 (for/fold [(acc (if w (rwild w) (hash)))]
+	 (for/fold [(acc (rwild w))]
 	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
 	   (rupdate acc
 		    key
@@ -186,7 +183,11 @@
 				    (walk (wildcard-sequence-matcher w) k)
 				    #f)]
 	      [else (walk w k)])))
-    walk))
+    (lambda (re1 re2)
+      (match* (re1 re2)
+	[(#f r) #f]
+	[(r #f) #f]
+	[(r1 r2) (walk r1 r2)]))))
 
 (define erase-path
   (let ()
@@ -194,9 +195,7 @@
       (error 'erase-path "Cofinite pattern required"))
     (define (walk path aggregate)
       (match* (path aggregate)
-	[((wildcard-sequence r1) (wildcard-sequence r2))
-	 (define r (walk r1 r2))
-	 (and r (rwildseq r))]
+	[((wildcard-sequence r1) (wildcard-sequence r2)) (rwildseq (walk r1 r2))]
 	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
 	[(r1 (wildcard-sequence r2)) (cofinite-pattern)]
 	[((? set? v1) (? set? v2))
@@ -215,7 +214,7 @@
 	 ;; after an erasure, a particular key's continuation is the
 	 ;; same as the wildcard's continuation. See tests/examples
 	 ;; below.
-	 (for/fold [(acc (if w (rwild w) (hash)))]
+	 (for/fold [(acc (rwild w))]
 	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
 	   (rupdate acc
 		    key
@@ -233,7 +232,11 @@
 				 k)]
 	   [else (walk w k)])
 	  k))
-    walk))
+    (lambda (re1 re2)
+      (match* (re1 re2)
+	[(#f r) r]
+	[(r #f) (cofinite-pattern)]
+	[(r1 r2) (walk r1 r2)]))))
 
 (define (match-value r v)
   (let walk ((vs (list v)) (stack '(())) (r r))
@@ -287,6 +290,8 @@
     (define (d x) (display x port))
     (define (walk i m)
       (match m
+	[#f
+	 (d "::: no further matches possible")]
 	[(wildcard-sequence k)
 	 (d "...>")
 	 (walk (+ i 4) k)]
@@ -442,6 +447,9 @@
 		 (list 'a 'b 'c 'd 'e 'f) "A"
 		 (list 'b 'c 'd 'e 'f 'a) ""
 		 3 "")
+
+  (void (pretty-print-matcher (rand (pattern->matcher 'A (list 'a))
+				    (pattern->matcher 'B (list 'b)))))
 
   (let ((r1 (ror (pattern->matcher 'A (list  ? 'b))
 		 (pattern->matcher 'A (list  ? 'c))))
