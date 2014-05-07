@@ -7,11 +7,15 @@
 
 (require rackunit)
 
-;; TODO: proper exports
-(provide ror
+(provide ?
 	 pattern->matcher
-	 ?
-	 match-value)
+	 matcher? ;; expensive; see implementation
+	 matcher-empty
+	 matcher-empty?
+	 matcher-union
+	 matcher-intersect
+	 matcher-erase-path
+	 matcher-match-value)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
   (begin
@@ -47,14 +51,22 @@
 ;; table.
 (struct wildcard-sequence (matcher) #:transparent)
 
-(define (rnull) #f)
-(define (rempty? r) (not r))
+(define (matcher? x)
+  (or (eq? x #f)
+      (set? x)
+      (wildcard-sequence? x)
+      (and (hash? x)
+	   (for/and ([v (in-hash-values x)])
+	     (matcher? v)))))
+
+(define (matcher-empty) #f)
+(define (matcher-empty? r) (not r))
 
 (define (rvalue v) (set v))
 
-(define (rseq e r)   (if (rempty? r) r (hash e r)))
+(define (rseq e r)   (if (matcher-empty? r) r (hash e r)))
 (define (rwild r)    (rseq ? r))
-(define (rwildseq r) (if (rempty? r) r (wildcard-sequence r)))
+(define (rwildseq r) (if (matcher-empty? r) r (wildcard-sequence r)))
 
 (define (rseq* x . xs)
   (let walk ((xs (cons x xs)))
@@ -97,7 +109,7 @@
   (hash-ref r key (lambda () #f)))
 
 (define (rupdate r key k)
-  (if (rempty? k)
+  (if (matcher-empty? k)
       (and r (hash-remove r key))
       (hash-set (or r (hash)) key k)))
 
@@ -114,10 +126,10 @@
 	   (key-close? k))))
 
 (define (expand-wildseq r)
-  (ror (rwild (rwildseq r))
-       (rseq EOS r)))
+  (matcher-union (rwild (rwildseq r))
+		 (rseq EOS r)))
 
-(define ror
+(define matcher-union
   (let ()
     (define (merge o1 o2)
       (match* (o1 o2)
@@ -159,7 +171,7 @@
 	[(r #f) r]
 	[(r1 r2) (walk r1 r2)]))))
 
-(define rand
+(define matcher-intersect
   (let ()
     (define (walk re1 re2)
       (match* (re1 re2)
@@ -201,10 +213,10 @@
 	[(r #f) #f]
 	[(r1 r2) (walk r1 r2)]))))
 
-(define erase-path
+(define matcher-erase-path
   (let ()
     (define (cofinite-pattern)
-      (error 'erase-path "Cofinite pattern required"))
+      (error 'matcher-erase-path "Cofinite pattern required"))
     (define (walk path aggregate)
       (match* (path aggregate)
 	[((wildcard-sequence r1) (wildcard-sequence r2)) (rwildseq (walk r1 r2))]
@@ -250,7 +262,7 @@
 	[(r #f) (cofinite-pattern)]
 	[(r1 r2) (walk r1 r2)]))))
 
-(define (match-value r v)
+(define (matcher-match-value r v)
   (let walk ((vs (list v)) (stack '(())) (r r))
     (define (walk-wild vs stack)
       (match (rlookup r ?)
@@ -276,7 +288,7 @@
 	       [#f (set)]
 	       [k (walk rest stack1 k)])])]
 	 [(cons (== ?) rest)
-	  (error 'match-value "Cannot match wildcard as a value")]
+	  (error 'matcher-match-value "Cannot match wildcard as a value")]
 	 [(cons (cons v1 v2) rest)
 	  (match (rlookup r SOP)
 	    [#f (walk-wild rest stack)]
@@ -287,7 +299,7 @@
 	    [k (walk vv (cons rest stack) k)])]
 	 [(cons (? non-object-struct? s) rest)
 	  (define-values (t skipped?) (struct-info s))
-	  (when skipped? (error 'match-value "Cannot reflect on struct instance ~v" s))
+	  (when skipped? (error 'matcher-match-value "Cannot reflect on struct instance ~v" s))
 	  (define fs (cdr (vector->list (struct->vector s))))
 	  (match (rlookup r t)
 	    [#f (walk-wild rest stack)]
@@ -334,7 +346,7 @@
       (match tests
 	['() (void)]
 	[(list* message expectedstr rest)
-	 (define actualset (match-value matcher message))
+	 (define actualset (matcher-match-value matcher message))
 	 (printf "~v ==> ~v\n" message actualset)
 	 (check-equal? actualset
 		       (apply set (map (lambda (c) (string->symbol (string c)))
@@ -342,21 +354,21 @@
 	 (walk rest)])))
 
   (void (pretty-print-matcher
-	 (ror (pattern->matcher 'A (list (list ?) 'x))
-	      (pattern->matcher 'B (list (list ?) 'y)))))
+	 (matcher-union (pattern->matcher 'A (list (list ?) 'x))
+			(pattern->matcher 'B (list (list ?) 'y)))))
 
   (void (pretty-print-matcher
-	 (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-	      (pattern->matcher 'B (list (list 'c 'd) 'y)))))
+	 (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+			(pattern->matcher 'B (list (list 'c 'd) 'y)))))
 
   (void (pretty-print-matcher
-	 (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-	      (pattern->matcher 'B (list (list  ?  ?) 'y)))))
+	 (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+			(pattern->matcher 'B (list (list  ?  ?) 'y)))))
 
   (check-matches
    (pretty-print-matcher
-    (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-	 (pattern->matcher 'B (list (list  ?  ?) 'x))))
+    (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+		   (pattern->matcher 'B (list (list  ?  ?) 'x))))
    (list 'z 'x) ""
    (list (list 'z 'z) 'x) "B"
    (list (list 'z (list 'z)) 'x) "B"
@@ -364,8 +376,8 @@
 
   (check-matches
    (pretty-print-matcher
-    (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-	 (pattern->matcher 'B (list (list ?)     'y))))
+    (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+		   (pattern->matcher 'B (list (list ?)     'y))))
    (list 'z 'y) ""
    (list (list 'z 'z) 'y) ""
    (list (list 'z 'z) 'x) ""
@@ -373,38 +385,38 @@
 
   (check-matches
    (pretty-print-matcher
-    (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-	 (pattern->matcher 'B (list ? 'y))))
+    (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+		   (pattern->matcher 'B (list ? 'y))))
    (list 'z 'y) "B"
    (list (list 'z 'z) 'y) "B"
    (list (list 'a 'b) 'x) "A")
 
   (check-matches
    (pretty-print-matcher
-    (ror (pattern->matcher 'A (list 'a 'b))
-	 (pattern->matcher 'B (list 'c 'd))))
+    (matcher-union (pattern->matcher 'A (list 'a 'b))
+		   (pattern->matcher 'B (list 'c 'd))))
    (list 'a 'b) "A"
    (list 'c 'd) "B"
    (list 'a 'd) ""
    (list 'c 'b) "")
 
-  (void (pretty-print-matcher (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-				   ;; Note: this is a largely nonsense matcher,
-				   ;; since it expects no input at all
-				   (rseq EOS (rvalue 'B)))))
+  (void (pretty-print-matcher (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+					     ;; Note: this is a largely nonsense matcher,
+					     ;; since it expects no input at all
+					     (rseq EOS (rvalue 'B)))))
 
   (check-matches
    (pretty-print-matcher
-    (ror (pattern->matcher 'A (list (list 'a 'b) 'x))
-	 (pattern->matcher 'B ?)))
+    (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+		   (pattern->matcher 'B ?)))
    (list (list 'a 'b) 'x) "AB"
    'p "B"
    (list 'p) "B")
 
   (check-matches
    (pretty-print-matcher
-    (ror (pattern->matcher 'A (list 'a ?))
-	 (pattern->matcher 'B (list 'a (list 'b)))))
+    (matcher-union (pattern->matcher 'A (list 'a ?))
+		   (pattern->matcher 'B (list 'a (list 'b)))))
 
    (list 'a (list 'b)) "AB"
    (list 'a (list 'b 'b)) "A"
@@ -416,9 +428,9 @@
 
   (check-matches
    (pretty-print-matcher
-    (ror (ror (pattern->matcher 'A (list 'a ?))
-	      (pattern->matcher 'A (list 'q ?)))
-	 (pattern->matcher 'B (list 'a (list 'b)))))
+    (matcher-union (matcher-union (pattern->matcher 'A (list 'a ?))
+				  (pattern->matcher 'A (list 'q ?)))
+		   (pattern->matcher 'B (list 'a (list 'b)))))
    (list 'a (list 'b)) "AB"
    (list 'q (list 'b)) "A"
    (list 'a 'x) "A"
@@ -432,8 +444,8 @@
       (for/list ((c (in-string "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")))
 	(define csym (string->symbol (string c)))
 	(pattern->matcher csym (list csym ?))))
-    (ror (foldr ror (rnull) ps)
-	 (pattern->matcher '+ (list 'Z (list ? '- ?)))))
+    (matcher-union (foldr matcher-union (matcher-empty) ps)
+		   (pattern->matcher '+ (list 'Z (list ? '- ?)))))
 
   (void (pretty-print-matcher (bigdemo)))
   (check-matches
@@ -460,25 +472,25 @@
 		 (list 'b 'c 'd 'e 'f 'a) ""
 		 3 "")
 
-  (void (pretty-print-matcher (rand (pattern->matcher 'A (list 'a))
-				    (pattern->matcher 'B (list 'b)))))
+  (void (pretty-print-matcher (matcher-intersect (pattern->matcher 'A (list 'a))
+						 (pattern->matcher 'B (list 'b)))))
 
-  (let ((r1 (ror (pattern->matcher 'A (list  ? 'b))
-		 (pattern->matcher 'A (list  ? 'c))))
-	(r2 (ror (pattern->matcher 'B (list 'a  ?))
-		 (pattern->matcher 'B (list 'b  ?)))))
-    (pretty-print-matcher (ror r1 r2))
-    (pretty-print-matcher (ror r1 r1))
-    (pretty-print-matcher (ror r2 r2))
-    (pretty-print-matcher (rand r1 r2))
-    (pretty-print-matcher (rand r1 r1))
-    (pretty-print-matcher (rand r2 r2))
+  (let ((r1 (matcher-union (pattern->matcher 'A (list  ? 'b))
+			   (pattern->matcher 'A (list  ? 'c))))
+	(r2 (matcher-union (pattern->matcher 'B (list 'a  ?))
+			   (pattern->matcher 'B (list 'b  ?)))))
+    (pretty-print-matcher (matcher-union r1 r2))
+    (pretty-print-matcher (matcher-union r1 r1))
+    (pretty-print-matcher (matcher-union r2 r2))
+    (pretty-print-matcher (matcher-intersect r1 r2))
+    (pretty-print-matcher (matcher-intersect r1 r1))
+    (pretty-print-matcher (matcher-intersect r2 r2))
     (void))
 
-  (void (pretty-print-matcher (rand (bigdemo) (pattern->matcher 'X (list 'm 'n)))))
+  (void (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'm 'n)))))
 
   (check-matches
-   (pretty-print-matcher (rand (bigdemo) (pattern->matcher 'X (list 'Z ?))))
+   (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'Z ?))))
    (list 'a '-) ""
    (list 'Z '-) "XZ"
    (list '? '-) ""
@@ -498,24 +510,24 @@
 
   (let* ((r1 (pattern->matcher 'A (list  ? 'b)))
 	 (r2 (pattern->matcher 'B (list 'a  ?)))
-	 (r12 (ror r1 r2)))
+	 (r12 (matcher-union r1 r2)))
     (printf "\n-=-=-=-=-=-=-=-=- erase1\n")
     (pretty-print-matcher r1)
     (pretty-print-matcher r2)
     (pretty-print-matcher r12)
     ;; TODO: these next two are not currently "minimal"
-    (pretty-print-matcher (erase-path r1 r12))
-    (pretty-print-matcher (erase-path r2 r12))
+    (pretty-print-matcher (matcher-erase-path r1 r12))
+    (pretty-print-matcher (matcher-erase-path r2 r12))
     (void))
 
-  (let* ((r1 (ror (pattern->matcher 'A (list 'a ?))
-		  (pattern->matcher 'A (list 'b ?))))
+  (let* ((r1 (matcher-union (pattern->matcher 'A (list 'a ?))
+			    (pattern->matcher 'A (list 'b ?))))
 	 (r2 (pattern->matcher 'B (list 'b ?)))
-	 (r12 (ror r1 r2)))
+	 (r12 (matcher-union r1 r2)))
     (printf "\n-=-=-=-=-=-=-=-=- erase2\n")
     (pretty-print-matcher r12)
-    (pretty-print-matcher (erase-path r1 r12))
-    (pretty-print-matcher (erase-path r2 r12))
+    (pretty-print-matcher (matcher-erase-path r1 r12))
+    (pretty-print-matcher (matcher-erase-path r2 r12))
     (void))
 
   )
@@ -525,8 +537,8 @@
   (struct b (x) #:transparent)
 
   (define (intersect a b)
-    (rand (pattern->matcher 'A a)
-	  (pattern->matcher 'B b)))
+    (matcher-intersect (pattern->matcher 'A a)
+		       (pattern->matcher 'B b)))
 
   (define EAB (E 'A 'B))
 
