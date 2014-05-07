@@ -7,7 +7,10 @@
 
 (require rackunit)
 
-(provide )
+;; TODO: proper exports
+(provide ror
+	 pattern->matcher
+	 ?)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
   (begin
