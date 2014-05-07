@@ -10,7 +10,8 @@
 ;; TODO: proper exports
 (provide ror
 	 pattern->matcher
-	 ?)
+	 ?
+	 match-value)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
   (begin
