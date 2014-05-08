@@ -15,7 +15,8 @@
 	 matcher-union
 	 matcher-intersect
 	 matcher-erase-path
-	 matcher-match-value)
+	 matcher-match-value
+	 matcher-relabel)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
   (begin
@@ -171,14 +172,17 @@
 	[(r #f) r]
 	[(r1 r2) (walk r1 r2)]))))
 
-(define matcher-intersect
+(define (matcher-intersect re1 re2 [combine-success-values set-union])
   (let ()
+    ;; INVARIANT: re1 is a part of the original re1, and likewise for
+    ;; re2. This is so that the first arg to combine-success-values
+    ;; always comes from re1, and the second from re2.
     (define (walk re1 re2)
       (match* (re1 re2)
 	[((wildcard-sequence r1) (wildcard-sequence r2)) (rwildseq (walk r1 r2))]
 	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2)]
-	[(r1 (wildcard-sequence r2)) (walk (expand-wildseq r2) r1)]
-	[((? set? v1) (? set? v2)) (set-union v1 v2)]
+	[(r1 (wildcard-sequence r2)) (walk r1 (expand-wildseq r2))]
+	[((? set? v1) (? set? v2)) (combine-success-values v1 v2)]
 	[((? hash? h1) (? hash? h2))
 	 (define w1 (rlookup h1 ?))
 	 (define w2 (rlookup h2 ?))
@@ -197,21 +201,20 @@
 		    key
 		    (match* ((rlookup h1 key) (rlookup h2 key))
 		      [(#f #f) #f]
-		      [(#f k2) (walk-wild w1 key k2)]
-		      [(k1 #f) (walk-wild w2 key k1)]
+		      [(#f k2) (walk-wild                          walk w1 key k2)]
+		      [(k1 #f) (walk-wild (lambda (a2 a1) (walk a1 a2)) w2 key k1)]
 		      [(k1 k2) (walk k1 k2)])))]))
-    (define (walk-wild w key k)
+    (define (walk-wild walk-fn w key k)
       (and w (cond
-	      [(key-open? key) (walk (rwildseq w) k)]
+	      [(key-open? key) (walk-fn (rwildseq w) k)]
 	      [(key-close? key) (if (wildcard-sequence? w)
-				    (walk (wildcard-sequence-matcher w) k)
+				    (walk-fn (wildcard-sequence-matcher w) k)
 				    #f)]
-	      [else (walk w k)])))
-    (lambda (re1 re2)
-      (match* (re1 re2)
-	[(#f r) #f]
-	[(r #f) #f]
-	[(r1 r2) (walk r1 r2)]))))
+	      [else (walk-fn w k)])))
+    (match* (re1 re2)
+      [(#f r) #f]
+      [(r #f) #f]
+      [(r1 r2) (walk r1 r2)])))
 
 (define matcher-erase-path
   (let ()
@@ -308,6 +311,14 @@
 	  (match (rlookup r v)
 	    [#f (walk-wild rest stack)]
 	    [k (walk rest stack k)])])])))
+
+(define (matcher-relabel m f)
+  (let walk ((m m))
+    (match m
+      [#f #f]
+      [(? set?) (f m)]
+      [(wildcard-sequence m1) (wildcard-sequence (walk m1))]
+      [(? hash?) (for/hash [((k v) (in-hash m))] (values k (walk v)))])))
 
 (module+ test
   (define (pretty-print-matcher m [port (current-output-port)])
@@ -506,6 +517,46 @@
    (list 'Z (list '- '- '- '-)) "XZ"
    (list 'Z (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) "XZ"
    (list 'Z '((()) - -)) "XZ+"
+   (list '? (list '- '- '-)) "")
+
+  (check-matches
+   (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'Z ?))
+					    (lambda (a b) b)))
+   (list 'a '-) ""
+   (list 'Z '-) "X"
+   (list '? '-) ""
+   (list 'a (list '- '- '-)) ""
+   (list 'a (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) ""
+   (list 'Z) ""
+   (list 'Z 'x) "X"
+   (list 'Z (list)) "X"
+   (list 'Z (list '-)) "X"
+   (list 'Z (list '-)) "X"
+   (list 'Z (list '- '-)) "X"
+   (list 'Z (list '- '- '-)) "X"
+   (list 'Z (list '- '- '- '-)) "X"
+   (list 'Z (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) "X"
+   (list 'Z '((()) - -)) "X"
+   (list '? (list '- '- '-)) "")
+
+  (check-matches
+   (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X ?)
+					    (lambda (a b) b)))
+   (list 'a '-) "X"
+   (list 'Z '-) "X"
+   (list '? '-) ""
+   (list 'a (list '- '- '-)) "X"
+   (list 'a (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) "X"
+   (list 'Z) ""
+   (list 'Z 'x) "X"
+   (list 'Z (list)) "X"
+   (list 'Z (list '-)) "X"
+   (list 'Z (list '-)) "X"
+   (list 'Z (list '- '-)) "X"
+   (list 'Z (list '- '- '-)) "X"
+   (list 'Z (list '- '- '- '-)) "X"
+   (list 'Z (list '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '- '-)) "X"
+   (list 'Z '((()) - -)) "X"
    (list '? (list '- '- '-)) "")
 
   (let* ((r1 (pattern->matcher 'A (list  ? 'b)))
