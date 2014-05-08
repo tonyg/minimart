@@ -1,6 +1,7 @@
 #lang racket/base
 ;; Gestalts: representations of (replicated) state.
 
+(require racket/set)
 (require racket/match)
 
 (require "route.rkt")
@@ -88,10 +89,10 @@
   (gestalt (xu (gestalt-metalevels g))))
 
 (define (strip-gestalt-label g)
-  (gestalt-matcher-transform (lambda (m) (matcher-relabel m (lambda (old) (set #t))))))
+  (gestalt-matcher-transform g (lambda (m) (matcher-relabel m (lambda (old) (set #t))))))
 
 (define (label-gestalt g pid)
-  (gestalt-matcher-transform (lambda (m) (matcher-relabel m (lambda (old) (set pid))))))
+  (gestalt-matcher-transform g (lambda (m) (matcher-relabel m (lambda (old) (set pid))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
