@@ -2,11 +2,10 @@
 
 (require racket/match)
 (require racket/list)
-(require "pattern.rkt")
+(require "route.rkt")
+(require "gestalt.rkt")
 (require "functional-queue.rkt")
 (require (only-in web-server/private/util exn->string))
-
-(require rackunit) ;; TODO: split out
 
 (provide (struct-out route)
 	 (struct-out routing-update)
@@ -14,7 +13,7 @@
 	 (struct-out quit)
 	 (struct-out process)
 	 (struct-out transition)
-	 ? ;; imported from pattern.rkt
+	 ? ;; imported from route.rkt
 	 wildcard?
 	 sub
 	 pub
@@ -25,28 +24,10 @@
 	 deliver-event
 	 transition-bind
 	 sequence-transitions
-
 	 log-events-and-actions?)
 
 (define pid-stack (make-parameter '()))
 (define log-events-and-actions? (make-parameter #f))
-
-;; A Gestalt is a (gestalt (Listof (Vectorof (Pairof Matcher
-;; Matcher)))), representing the total interests of a process or group
-;; of processes. The outer list has a present entry for each active
-;; metalevel, starting with metalevel 0 in the car. The vectors each
-;; have an entry for each active observer level at their metalevel.
-;; The innermost pairs have cars holding matchers representing active
-;; subscriptions, and cdrs representing active advertisements.
-;;
-;;    "... a few standardised subsystems, identical from citizen to
-;;     citizen. Two of these were channels for incoming data — one for
-;;     gestalt, and one for linear, the two primary modalities of all
-;;     Konishi citizens, distant descendants of vision and hearing."
-;;      -- Greg Egan, "Diaspora"
-;;         http://gregegan.customer.netspace.net.au/DIASPORA/01/Orphanogenesis.html
-;;
-(struct gestalt (metalevels) #:prefab)
 
 ;; Events
 (struct routing-update (gestalt) #:prefab)
@@ -58,7 +39,14 @@
 
 ;; Actors and Configurations
 (struct process (gestalt behavior state) #:transparent)
-(struct world (next-pid event-queue process-table downward-gestalt process-actions) #:transparent)
+(struct world (next-pid			;; Natural, PID for next-spawned process
+	       event-queue		;; Queue of Event
+	       runnable-pids		;; Set of PIDs
+	       aggregate-gestalt	;; Gestalt mapping to PID
+	       process-table		;; Hash from PID to Process
+	       downward-gestalt		;; GestaltSet representing interests of outside world
+	       process-actions		;; Queue of (cons PID Action)
+	       ) #:transparent)
 
 ;; Behavior : maybe event * state -> transition
 (struct transition (state actions) #:transparent)
@@ -67,54 +55,8 @@
 ;; perhaps. "Process table maps to these; idea is to avoid redundant
 ;; signalling of routing-updates where possible"
 
-(define (drop-gestalt g)
-  (match-define (gestalt metalevels) g)
-  (gestalt (if (null? metalevels) '() (cdr metalevels))))
-
-(define (lift-gestalt g)
-  (gestalt (cons '#() (gestalt-metalevels g))))
-
-(define (simple-gestalt subs advs level metalevel)
-  (define leaf (cons subs advs))
-  (define vec (make-vector (+ level 1) (cons #f #f)))
-  (vector-set! vec level leaf)
-  (let loop ((n metalevel) (acc (list vec)))
-    (if (zero? n)
-	(gestalt acc)
-	(loop (- n 1) (cons '#() acc)))))
-
-(define (gestalt-empty) (gestalt '()))
-
-(define (gestalt-union g1 g2)
-  (define (zu sa1 sa2)
-    (cons (matcher-union (car sa1) (car sa2))
-	  (matcher-union (cdr sa1) (cdr sa2))))
-  (define (yu ls1 ls2)
-    (define vl1 (vector-length ls1))
-    (define vl2 (vector-length ls2))
-    (define one-bigger? (> vl1 vl2))
-    (define maxlen (max vl1 vl2))
-    (define minlen (min vl1 vl2))
-    (define result (make-vector maxlen #f))
-    (for ((i (in-range 0 minlen)))
-      (vector-set! result i (zu (vector-ref ls1 i) (vector-ref ls2 i))))
-    (for ((i (in-range minlen maxlen)))
-      (vector-set! result i (vector-ref (if one-bigger? vl1 vl2) i)))
-    result)
-  (define (xu mls1 mls2)
-    (match* (mls1 mls2)
-      [('() mls) mls]
-      [(mls '()) mls]
-      [((cons m1 mls1) (cons m2 mls2)) (cons (yu m1 m2) (xu mls1 mls2))]))
-  (gestalt (xu (gestalt-metalevels g1)
-	       (gestalt-metalevels g2))))
-
-(check-equal? (simple-gestalt 'a 'b 0 0)
-	      (gestalt (list (vector (cons 'a 'b)))))
-(check-equal? (simple-gestalt 'a 'b 2 2)
-	      (gestalt (list '#() '#() (vector (cons #f #f)
-					       (cons #f #f)
-					       (cons 'a 'b)))))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Protocol and utilities
 
 (define (sub p #:meta-level [ml 0] #:level [l 0]) (simple-gestalt (pattern->matcher #t p) #f l ml))
 (define (pub p #:meta-level [ml 0] #:level [l 0]) (simple-gestalt #f (pattern->matcher #t p) l ml))
@@ -125,12 +67,29 @@
 
 (define (spawn-world . boot-actions)
   (spawn world-handle-event
-	 (enqueue-actions (world 0 (make-queue) (hash) (gestalt-empty) (make-queue))
+	 (enqueue-actions (world 0
+				 (make-queue)
+				 (set)
+				 (gestalt-empty)
+				 (hash)
+				 (gestalt-empty)
+				 (make-queue))
 			  -1
 			  boot-actions)))
 
 (define (event? x) (or (routing-update? x) (message? x)))
 (define (action? x) (or (event? x) (process? x) (quit? x)))
+
+(define (transition-bind k t0)
+  (match-define (transition state0 actions0) t0)
+  (match-define (transition state1 actions1) (k state0))
+  (transition state1 (cons actions0 actions1)))
+
+(define (sequence-transitions t0 . steps)
+  (foldl transition-bind t0 steps))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; World implementation
 
 (define (enqueue-actions w pid actions)
   (struct-copy world w
@@ -138,9 +97,13 @@
 					(filter-map (lambda (a) (and (action? a) (cons pid a)))
 						    (flatten actions)))]))
 
-(define (quiescent? w)
+;; The code is written to maintain the runnable-pids set carefully, to
+;; ensure we can locally decide whether we're inert or not without
+;; having to search the whole deep process tree.
+(define (inert? w)
   (and (queue-empty? (world-event-queue w))
-       (queue-empty? (world-process-actions w))))
+       (queue-empty? (world-process-actions w))
+       (set-empty? (world-runnable-pids w))))
 
 (define (deliver-event e pid p)
   (parameterize ((pid-stack (cons pid (pid-stack))))
@@ -159,11 +122,14 @@
       (match (with-continuation-mark 'minimart-process
 				     pid ;; TODO: debug-name, other user annotation
 				     ((process-behavior p) e (process-state p)))
-	[#f #f]
-	[(? transition? t) t]
+	[#f #f] ;; inert.
+	[(? transition? t) t] ;; potentially runnable.
 	[x
 	 (log-error "Process ~a returned non-#f, non-transition: ~v" pid x)
 	 (transition (process-state p) (list (quit)))]))))
+
+(define (mark-pid-runnable w pid)
+  (struct-copy world w [runnable-pids (set-add (world-runnable-pids w) pid)]))
 
 (define (apply-transition pid t w)
   (match t
@@ -181,15 +147,10 @@
 						    "#<world>"
 						    new-state)))
 				    (struct-copy process p [state new-state])))))
-       (enqueue-actions w pid new-actions))]))
+       (enqueue-actions (mark-pid-runnable w pid) pid new-actions))]))
 
-(define (transition-bind k t0)
-  (match-define (transition state0 actions0) t0)
-  (match-define (transition state1 actions1) (k state0))
-  (transition state1 (cons actions0 actions1)))
-
-(define (sequence-transitions t0 . steps)
-  (foldl transition-bind t0 steps))
+(define (enqueue-event e w)
+  (struct-copy world w [event-queue (enqueue (world-event-queue w) e)]))
 
 (define (perform-actions w)
   (for/fold ([t (transition (struct-copy world w [process-actions (make-queue)]) '())])
@@ -204,64 +165,81 @@
               '()))
 
 (define (transform-process pid w fp)
-  (define pt (world-process-actions w))
+  (define pt (world-process-table w))
   (match (hash-ref pt pid)
     [#f w]
     [p (struct-copy world w [process-table (hash-set pt pid (fp p))])]))
 
-(define (enqueue-event e w)
-  (struct-copy world w [event-queue (enqueue (world-event-queue w) e)]))
+(define (update-aggregate-gestalt w pid old-g new-g)
+  (struct-copy world w [aggregate-gestalt
+			(gestalt-combine (gestalt-combine old-g
+							  (world-aggregate-gestalt w)
+							  matcher-erase-path)
+					 new-g
+					 matcher-union)]))
+
+(define (issue-local-routing-update w relevant-gestalt)
+  .... HERE %%%
+  (enqueue-event (routing-update (aggregate-routes (world-downward-routes w) w)) w))
+
+(define (issue-routing-update w relevant-gestalt)
+  (transition (issue-local-routing-update w)
+              (routing-update (drop-routes (aggregate-routes '() w)))))
+
+(define (apply-and-issue-routing-update w pid old-gestalt new-gestalt)
+  (issue-routing-update (update-aggregate-gestalt w pid old-gestalt new-gestalt)
+			(gestalt-union old-gestalt new-gestalt)))
 
 (define ((perform-action pid a) w)
   (match a
     [(? process? new-p)
      (let* ((new-pid (world-next-pid w))
-	    (w (struct-copy world w [next-pid (+ new-pid 1)]))
-	    (w (struct-copy world w [process-table
-				     (hash-set (world-process-table w) new-pid new-p)])))
+	    (new-gestalt (label-gestalt (process-gestalt new-p) new-pid))
+	    (new-p (struct-copy process new-p [gestalt new-gestalt]))
+	    (w (struct-copy world w
+		 [next-pid (+ new-pid 1)]
+		 [process-table (hash-set (world-process-table w) new-pid new-p)])))
        (log-info "Spawned process ~a ~v ~v" new-pid (process-behavior new-p) (process-state new-p))
-       (issue-routing-update w))]
+       (apply-and-issue-routing-update w new-pid (gestalt-empty) new-gestalt))]
     [(quit)
-     (when (hash-has-key? (world-process-table w) pid) (log-info "Process ~a terminating" pid))
-     (let* ((w (struct-copy world w [process-table (hash-remove (world-process-table w) pid)])))
-       (issue-routing-update w))]
+     (define pt (world-process-table w))
+     (define p (hash-ref pt pid (lambda () #f)))
+     (if p
+	 (let* ((w (struct-copy world w [process-table (hash-remove pt pid)])))
+	   (log-info "Process ~a terminating" pid)
+	   (apply-and-issue-routing-update w pid (process-gestalt p) (gestalt-empty)))
+	 (transition w '()))]
     [(routing-update gestalt)
-     (let* ((w (transform-process pid w
-				  (lambda (p) (struct-copy process p [gestalt gestalt])))))
-       (issue-routing-update w))]
+     (define pt (world-process-table w))
+     (define p (hash-ref pt pid (lambda () #f)))
+     (if p
+	 (let* ((old-gestalt (process-gestalt p))
+		(new-gestalt (label-gestalt gestalt pid))
+		(new-p (struct-copy process p [gestalt new-gestalt]))
+		(w (struct-copy world w [process-table (hash-set pt pid new-p)])))
+	   (apply-and-issue-routing-update w pid old-gestalt new-gestalt))
+	 (transition w '()))]
     [(message body meta-level feedback?)
      (if (zero? meta-level)
 	 (transition (enqueue-event a w) '())
 	 (transition w (message body (- meta-level 1) feedback?)))]))
 
-(define (issue-local-routing-update w)
-  (enqueue-event (routing-update (aggregate-routes (world-downward-routes w) w)) w))
-
-(define (issue-routing-update w)
-  (transition (issue-local-routing-update w)
-              (routing-update (drop-routes (aggregate-routes '() w)))))
-
 (define (dispatch-event e w)
   ...)
 
-;; TODO: need explicit indication from a transitioning child as to
-;; whether it is inert or not. If not, it should be explicitly
-;; scheduled for the next round. The current system of just asking
-;; everyone doesn't scale.
-;;
-;; This is the "schedule" rule of the calculus.
-;;
+;; This is roughly the "schedule" rule of the calculus.
 (define (step-children w)
-  (let-values (((w step-taken?)
-		(for/fold ([w w] [step-taken? #f]) (((pid g) (in-hash (world-process-table w))))
-		  (match-define (trigger-guard p _) g)
-		  (define t (deliver-event #f pid p))
-		  (values (apply-transition pid t w)
-			  (or step-taken? (transition? t))))))
-    (and step-taken? (transition w '()))))
+  (define runnable-pids (world-runnable-pids w))
+  (if (set-empty? runnable-pids)
+      #f ;; world is inert.
+      (transition (for/fold ([w (struct-copy world w [runnable-pids (set)])])
+		      [(pid (in-set runnable-pids))]
+		    (define p (hash-ref (world-process-table w) pid))
+		    (apply-transition pid (deliver-event #f pid p) w))
+		  '()))) ;; world needs another check to see if more can happen.
 
 (define (world-handle-event e w)
-  (if (or e (not (quiescent? w)))
+  (if (or e (not (inert? w)))
       (sequence-transitions (transition (inject-event e w) '())
 			    dispatch-events
 			    perform-actions
@@ -271,7 +249,7 @@
 (define (inject-event e w)
   (match e
     [#f w]
-    [(routing-update routes)
-     (issue-local-routing-update (struct-copy world w [downward-routes (lift-routes routes)]))]
+    [(routing-update g)
+     (issue-local-routing-update (struct-copy world w [downward-gestalt (lift-gestalt g)]))]
     [(message body meta-level feedback?)
      (enqueue-event (message body (+ meta-level 1) feedback?) w)]))

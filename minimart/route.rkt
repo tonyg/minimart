@@ -218,6 +218,7 @@
       [(r #f) #f]
       [(r1 r2) (walk r1 r2)])))
 
+;; Removes re1's mappings from re2. Assumes re1 has previously been union'd into re2.
 (define matcher-erase-path
   (let ()
     (define (cofinite-pattern)
