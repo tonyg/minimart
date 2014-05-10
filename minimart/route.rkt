@@ -17,6 +17,7 @@
 	 matcher-intersect
 	 matcher-erase-path
 	 matcher-match-value
+	 matcher-match-matcher
 	 matcher-relabel)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
@@ -312,6 +313,47 @@
 	  (match (rlookup r v)
 	    [#f (walk-wild rest stack)]
 	    [k (walk rest stack k)])])])))
+
+(define (matcher-match-matcher re1 re2)
+  (let ()
+    (define (walk re1 re2 acc1 acc2)
+      (match* (re1 re2)
+	[((wildcard-sequence r1) (wildcard-sequence r2)) (walk r1 r2 acc1 acc2)]
+	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2 acc1 acc2)]
+	[(r1 (wildcard-sequence r2)) (walk r1 (expand-wildseq r2) acc1 acc2)]
+	[((? set? v1) (? set? v2)) (values (set-union acc1 v1) (set-union acc2 v2))]
+	[((? hash? h1) (? hash? h2))
+	 (define w1 (rlookup h1 ?))
+	 (define w2 (rlookup h2 ?))
+	 (define-values (r1 r2) (if (and w1 w2)
+				    (walk w1 w2 acc1 acc2)
+				    (values acc1 acc2)))
+	 ;; TODO: optimize as described in matcher-intersect.
+	 (for/fold [(r1 r1)
+		    (r2 r2)]
+	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+	   (match* ((rlookup h1 key) (rlookup h2 key))
+		      [(#f #f) (values r1 r2)]
+		      [(#f k2)
+		       (define-values (rr1 rr2) (walk-wild w1 key k2 r1 r2))
+		       (values rr1 rr2)]
+		      [(k1 #f)
+		       (define-values (rr2 rr1) (walk-wild w2 key k1 r2 r1))
+		       (values rr1 rr2)]
+		      [(k1 k2) (walk k1 k2 r1 r2)]))]))
+    (define (walk-wild w key k acc1 acc2)
+      (if w
+	  (cond
+	   [(key-open? key) (walk (rwildseq w) k acc1 acc2)]
+	   [(key-close? key) (if (wildcard-sequence? w)
+				 (walk (wildcard-sequence-matcher w) k acc1 acc2)
+				 #f)]
+	   [else (walk w k acc1 acc2)])
+	  (values acc1 acc2)))
+    (match* (re1 re2)
+      [(#f r) (values (set) (set))]
+      [(r #f) (values (set) (set))]
+      [(r1 r2) (walk r1 r2 (set) (set))])))
 
 (define (matcher-relabel m f)
   (let walk ((m m))
@@ -631,3 +673,14 @@
   ;; 		(hash 'a 1 'b (list 2 3)))
 
   )
+
+(module+ test
+  (let ((abc (foldr matcher-union (matcher-empty)
+		    (list (pattern->matcher 'A (list 'a ?))
+			  (pattern->matcher 'B (list 'b ?))
+			  (pattern->matcher 'C (list 'c ?)))))
+	(bcd (foldr matcher-union (matcher-empty)
+		    (list (pattern->matcher 'B (list 'b ?))
+			  (pattern->matcher 'C (list 'c ?))
+			  (pattern->matcher 'd (list 'd ?))))))
+    (matcher-match-matcher abc (matcher-relabel bcd (lambda (old) (set #t))))))
