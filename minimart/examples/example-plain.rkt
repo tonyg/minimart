@@ -26,8 +26,9 @@
     [(message (event _ (list line)) _ _) (transition s (send `(got-line ,line)))]
     [_ #f]))
 
-(run-ground (spawn-world (spawn r (void) (list (sub ?)))
+(run-ground (spawn-world (spawn r (void) (sub ?))
 			 (spawn b 0))
-	    (spawn echoer (void) (list (sub (event (read-line-evt (current-input-port) 'any) ?)
-					    #:meta-level 1)))
-	    (spawn spy (void) (list (sub ? #:level 1000) (pub ? #:level 1000))))
+	    (spawn echoer (void) (sub (event (read-line-evt (current-input-port) 'any) ?)
+				      #:meta-level 1))
+	    (spawn spy (void) (gestalt-union (sub ? #:level 1000)
+					     (pub ? #:level 1000))))
