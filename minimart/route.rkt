@@ -8,6 +8,7 @@
 (require rackunit)
 
 (provide ?
+	 wildcard?
 	 pattern->matcher
 	 matcher? ;; expensive; see implementation
 	 matcher-empty
