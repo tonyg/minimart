@@ -1,5 +1,6 @@
 #lang racket/base
 
+(require racket/set)
 (require racket/match)
 (require racket/list)
 (require "route.rkt")
@@ -7,8 +8,7 @@
 (require "functional-queue.rkt")
 (require (only-in web-server/private/util exn->string))
 
-(provide (struct-out route)
-	 (struct-out routing-update)
+(provide (struct-out routing-update)
 	 (struct-out message)
 	 (struct-out quit)
 	 (struct-out process)
@@ -17,6 +17,7 @@
 	 wildcard?
 	 sub
 	 pub
+	 gestalt-union
 	 spawn
 	 send
 	 feedback
@@ -179,12 +180,11 @@
 					 matcher-union)]))
 
 (define (issue-local-routing-update w relevant-gestalt)
-  .... HERE %%%
-  (enqueue-event (routing-update (aggregate-routes (world-downward-routes w) w)) w))
+  (enqueue-event (routing-update relevant-gestalt) w))
 
 (define (issue-routing-update w relevant-gestalt)
-  (transition (issue-local-routing-update w)
-              (routing-update (drop-routes (aggregate-routes '() w)))))
+  (transition (issue-local-routing-update w relevant-gestalt)
+              (routing-update (drop-gestalt (world-aggregate-gestalt w)))))
 
 (define (apply-and-issue-routing-update w pid old-gestalt new-gestalt)
   (issue-routing-update (update-aggregate-gestalt w pid old-gestalt new-gestalt)
@@ -224,8 +224,24 @@
 	 (transition (enqueue-event a w) '())
 	 (transition w (message body (- meta-level 1) feedback?)))]))
 
+;; NOTE: routing-update events arriving here carry descriptions of the
+;; changed region of the aggregate, NOT the whole aggregate.
 (define (dispatch-event e w)
-  ...)
+  (match e
+    [(message body meta-level feedback?)
+     (define matcher (gestalt-ref (world-aggregate-gestalt w) meta-level 0 feedback?))
+     (define pids (matcher-match-value matcher body))
+     (define pt (world-process-table w))
+     (for/fold ([w w]) [(pid (in-set pids))]
+       (apply-transition pid (deliver-event e pid (hash-ref pt pid)) w))]
+    [(routing-update affected-subgestalt)
+     (define g (world-aggregate-gestalt w))
+     (define-values (affected-pids uninteresting) (gestalt-match g affected-subgestalt))
+     (define pt (world-process-table w))
+     (for/fold ([w w]) [(pid (in-set affected-pids))]
+       (define p (hash-ref pt pid))
+       (define g1 (gestalt-filter g (process-gestalt p)))
+       (apply-transition pid (deliver-event (routing-update g1) pid p) w))]))
 
 ;; This is roughly the "schedule" rule of the calculus.
 (define (step-children w)
@@ -250,6 +266,9 @@
   (match e
     [#f w]
     [(routing-update g)
-     (issue-local-routing-update (struct-copy world w [downward-gestalt (lift-gestalt g)]))]
+     (define old-downward (world-downward-gestalt w))
+     (define new-downward (lift-gestalt (label-gestalt g 'out)))
+     (issue-local-routing-update (update-aggregate-gestalt w 'out old-downward new-downward)
+				 (gestalt-union old-downward new-downward))]
     [(message body meta-level feedback?)
      (enqueue-event (message body (+ meta-level 1) feedback?) w)]))
