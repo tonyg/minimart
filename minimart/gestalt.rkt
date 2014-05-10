@@ -7,22 +7,28 @@
 (require "route.rkt")
 
 (provide (struct-out gestalt)
+	 gestalt-ref
+	 gestalt-project
 	 drop-gestalt
 	 lift-gestalt
 	 simple-gestalt
 	 gestalt-empty
 	 gestalt-combine
 	 gestalt-union
+	 gestalt-intersect
+	 gestalt-filter
+	 gestalt-match
 	 strip-gestalt-label
 	 label-gestalt)
 
-;; A Gestalt is a (gestalt (Listof (Vectorof (Pairof Matcher
+;; A Gestalt is a (gestalt (Listof (Listof (Pairof Matcher
 ;; Matcher)))), representing the total interests of a process or group
 ;; of processes. The outer list has a present entry for each active
-;; metalevel, starting with metalevel 0 in the car. The vectors each
-;; have an entry for each active observer level at their metalevel.
-;; The innermost pairs have cars holding matchers representing active
-;; subscriptions, and cdrs representing active advertisements.
+;; metalevel, starting with metalevel 0 in the car. The inner lists
+;; each have an entry for each active observer level at their
+;; metalevel. The innermost pairs have cars holding matchers
+;; representing active subscriptions, and cdrs representing active
+;; advertisements.
 ;;
 ;;    "... a few standardised subsystems, identical from citizen to
 ;;     citizen. Two of these were channels for incoming data — one for
@@ -38,6 +44,25 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define (safe-list-ref xs n [fail-thunk (lambda () (error 'safe-list-ref "No such index ~v" n))])
+  (let loop ((xs xs) (n n))
+    (match xs
+      ['() (fail-thunk)]
+      [(cons x xs) (if (zero? n) x (loop xs (- n 1)))])))
+
+(define (safe-cdr xs)
+  (if (null? xs)
+      '()
+      (cdr xs)))
+
+(define (gestalt-ref g metalevel level get-advertisements?)
+  (define v (safe-list-ref (gestalt-metalevels g) metalevel (lambda () '#())))
+  (define p (safe-list-ref v level (lambda () '(#f . #f))))
+  ((if get-advertisements? cdr car) p))
+
+(define (gestalt-project g metalevel level get-advertisements? capture-spec)
+  (matcher-project (gestalt-ref g metalevel level get-advertisements?) capture-spec))
+
 (define (drop-gestalt g)
   (match-define (gestalt metalevels) g)
   (if (null? metalevels) g (gestalt (cdr metalevels))))
@@ -45,46 +70,82 @@
 (define (lift-gestalt g)
   (gestalt (cons '#() (gestalt-metalevels g))))
 
+(define (prepend n x xs)
+  (if (zero? n)
+      xs
+      (cons x (prepend (- n 1) x xs))))
+
 (define (simple-gestalt subs advs level metalevel)
-  (define leaf (cons subs advs))
-  (define vec (make-vector (+ level 1) (cons #f #f)))
-  (vector-set! vec level leaf)
-  (let loop ((n metalevel) (acc (list vec)))
-    (if (zero? n)
-	(gestalt acc)
-	(loop (- n 1) (cons '#() acc)))))
+  (gestalt (prepend metalevel '() (list (prepend level '(#f . #f) (list (cons subs advs)))))))
 
 (define (gestalt-empty) (gestalt '()))
 
-(define (gestalt-combine g1 g2 matcher-combiner)
-  (define (zu sa1 sa2)
-    (cons (matcher-combiner (car sa1) (car sa2))
-	  (matcher-combiner (cdr sa1) (cdr sa2))))
-  (define (yu ls1 ls2)
-    (define vl1 (vector-length ls1))
-    (define vl2 (vector-length ls2))
-    (define one-bigger? (> vl1 vl2))
-    (define maxlen (max vl1 vl2))
-    (define minlen (min vl1 vl2))
-    (define result (make-vector maxlen #f))
-    (for ((i (in-range 0 minlen)))
-      (vector-set! result i (zu (vector-ref ls1 i) (vector-ref ls2 i))))
-    (for ((i (in-range minlen maxlen)))
-      (vector-set! result i (vector-ref (if one-bigger? vl1 vl2) i)))
-    result)
-  (define (xu mls1 mls2)
-    (match* (mls1 mls2)
-      [('() mls) mls]
-      [(mls '()) mls]
-      [((cons m1 mls1) (cons m2 mls2)) (cons (yu m1 m2) (xu mls1 mls2))]))
+(define (map-zip imbalance-handler item-handler ls1 ls2)
+  (let walk ((ls1 ls1) (ls2 ls2))
+    (match* (ls1 ls2)
+      [('() '()) '()]
+      [('() ls) (imbalance-handler ls)]
+      [(ls '()) (imbalance-handler ls)]
+      [((cons l1 ls1) (cons l2 ls2)) (cons (item-handler l1 l2) (walk ls1 ls2))])))
+
+(define (gestalt-combine g1 g2 imbalance-handler matcher-pair-combiner)
+  (define (yu ls1 ls2) (map-zip imbalance-handler matcher-pair-combiner ls1 ls2))
+  (define (xu mls1 mls2) (map-zip imbalance-handler yu mls1 mls2))
   (gestalt (xu (gestalt-metalevels g1)
 	       (gestalt-metalevels g2))))
 
-(define (gestalt-union g1 g2) (gestalt-combine g1 g2 matcher-union))
+(define (gestalt-combine-straight g1 g2 imbalance-handler matcher-combiner)
+  (gestalt-combine g1 g2
+		   imbalance-handler
+		   (lambda (sa1 sa2)
+		     (cons (matcher-combiner (car sa1) (car sa2))
+			   (matcher-combiner (cdr sa1) (cdr sa2))))))
+
+(define (gestalt-combine-crossed g1 g2 imbalance-handler matcher-combiner)
+  (gestalt-combine g1 g2
+		   imbalance-handler
+		   (lambda (sa1 sa2)
+		     (cons (matcher-combiner (car sa1) (cdr sa2))
+			   (matcher-combiner (car sa2) (cdr sa1))))))
+
+(define (gestalt-union g1 g2) (gestalt-combine-straight g1 g2
+							(lambda (x) x)
+							matcher-union))
+
+(define (gestalt-intersect g1 g2) (gestalt-combine-straight g1 g2
+							    (lambda (x) '())
+							    matcher-intersect))
+
+;; View on g1 from g2's perspective.
+;; Drops a level from g2 and intersects crossed.
+(define (gestalt-filter g1 g2)
+  (gestalt-combine-crossed g1
+			   (gestalt (map safe-cdr (gestalt-metalevels g2)))
+			   (lambda (x) '())
+			   (lambda (g1 g2) (matcher-intersect g1 g2
+							      (lambda (v1 v2) v1)))))
+
+(define (gestalt-match g1 g2)
+  (define (zu sa1 sa2)
+    (define-values (a1 a2) (matcher-match-matcher (car sa1) (car sa2)))
+    (define-values (d1 d2) (matcher-match-matcher (cdr sa1) (cdr sa2)))
+    (values (set-union a1 d1) (set-union a2 d2)))
+  (define (mz xs1 xs2 f)
+    (match* (xs1 xs2)
+      [('() xs) (values (set) (set))]
+      [(xs '()) (values (set) (set))]
+      [((cons x1 xs1) (cons x2 xs2))
+       (define-values (r1 r2) (mz xs1 xs2 f))
+       (define-values (v1 v2) (f x1 x2))
+       (values (set-union v1 r1) (set-union v2 r2))]))
+  (define (yu ls1 ls2) (mz ls1 ls2 zu))
+  (define (xu mls1 mls2) (mz mls1 mls2 yu))
+  (xu (gestalt-metalevels g1)
+      (gestalt-metalevels g2)))
 
 (define (gestalt-matcher-transform g f)
   (define (zu sa) (cons (f (car sa)) (f (cdr sa))))
-  (define (yu ls) (for/vector [(z (in-vector ls))] (zu z)))
+  (define (yu ls) (map zu ls))
   (define (xu mls) (map yu mls))
   (gestalt (xu (gestalt-metalevels g))))
 
@@ -100,8 +161,8 @@
   (require rackunit)
 
   (check-equal? (simple-gestalt 'a 'b 0 0)
-		(gestalt (list (vector (cons 'a 'b)))))
+		(gestalt (list (list (cons 'a 'b)))))
   (check-equal? (simple-gestalt 'a 'b 2 2)
-		(gestalt (list '#() '#() (vector (cons #f #f)
-						 (cons #f #f)
-						 (cons 'a 'b))))))
+		(gestalt (list '() '() (list '(#f . #f)
+					     '(#f . #f)
+					     (cons 'a 'b))))))
