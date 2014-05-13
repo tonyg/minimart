@@ -99,15 +99,6 @@
       [(? hash?) (error 'pattern->matcher "Cannot match on hash tables at present")]
       [other (rseq other acc)])))
 
-(module+ test
-  (define (E . vs) (hash EOS (apply set vs)))
-  (check-equal? (pattern->matcher 'A 123) (hash 123 (E 'A)))
-  (check-equal? (pattern->matcher 'A (cons 1 2)) (hash SOP (hash 1 (hash 2 (hash EOS (E 'A))))))
-  (check-equal? (pattern->matcher 'A (cons ? 2)) (hash SOP (hash ? (hash 2 (hash EOS (E 'A))))))
-  (check-equal? (pattern->matcher 'A SOP) (hash struct:start-of-pair (hash EOS (E 'A))))
-  (check-equal? (pattern->matcher 'A ?) (hash ? (E 'A)))
-  )
-
 (define (rlookup r key)
   (hash-ref r key (lambda () #f)))
 
@@ -363,6 +354,17 @@
       [(? set?) (f m)]
       [(wildcard-sequence m1) (wildcard-sequence (walk m1))]
       [(? hash?) (for/hash [((k v) (in-hash m))] (values k (walk v)))])))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(module+ test
+  (define (E . vs) (hash EOS (apply set vs)))
+  (check-equal? (pattern->matcher 'A 123) (hash 123 (E 'A)))
+  (check-equal? (pattern->matcher 'A (cons 1 2)) (hash SOP (hash 1 (hash 2 (hash EOS (E 'A))))))
+  (check-equal? (pattern->matcher 'A (cons ? 2)) (hash SOP (hash ? (hash 2 (hash EOS (E 'A))))))
+  (check-equal? (pattern->matcher 'A SOP) (hash struct:start-of-pair (hash EOS (E 'A))))
+  (check-equal? (pattern->matcher 'A ?) (hash ? (E 'A)))
+  )
 
 (module+ test
   (define (pretty-print-matcher m [port (current-output-port)])
