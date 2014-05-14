@@ -211,7 +211,8 @@
 	    (new-p (struct-copy process new-p [gestalt new-gestalt]))
 	    (w (struct-copy world w
 		 [next-pid (+ new-pid 1)]
-		 [process-table (hash-set (world-process-table w) new-pid new-p)])))
+		 [process-table (hash-set (world-process-table w) new-pid new-p)]))
+	    (w (mark-pid-runnable w new-pid)))
        (log-info "Spawned process ~a ~v ~v" new-pid (process-behavior new-p) (process-state new-p))
        (apply-and-issue-routing-update w new-pid (gestalt-empty) new-gestalt))]
     [(quit)
