@@ -19,14 +19,19 @@
 	 wildcard?
 	 ?!
 	 capture?
+	 pretty-print-matcher
 
 	 sub
 	 pub
+	 gestalt-empty
 	 gestalt-union
+	 gestalt-intersect
+	 gestalt-empty?
 	 gestalt-ref
 	 compile-gestalt-projection
 	 gestalt-project
 	 gestalt-project->finite-set
+	 pretty-print-gestalt
 
 	 spawn
 	 send
