@@ -595,7 +595,8 @@
   (define (pretty-print-matcher* m)
     (newline)
     (pretty-print-matcher m)
-    (flush-output))
+    (flush-output)
+    m)
  
   (void (pretty-print-matcher*
 	 (matcher-union (pattern->matcher 'A (list (list ?) 'x))
