@@ -48,12 +48,12 @@
 
 (define (timer-subscriptions s)
   (define t (next-timer (driver-state-heap s)))
-  (append (list (sub (set-timer ? ? 'relative))
-		(sub (set-timer ? ? 'absolute))
-		(pub (timer-expired ? ?)))
-	  (if t
-	      (list (sub (event (timer-evt (pending-timer-deadline t)) ?) #:meta-level 1))
-	      '())))
+  (gestalt-union (sub (set-timer ? ? 'relative))
+		 (sub (set-timer ? ? 'absolute))
+		 (pub (timer-expired ? ?))
+		 (if t
+		     (sub (event (timer-evt (pending-timer-deadline t)) ?) #:meta-level 1)
+		     (gestalt-empty))))
 
 (define (spawn-timer-driver)
   (define s (driver-state (make-timer-heap)))
