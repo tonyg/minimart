@@ -60,7 +60,7 @@
       (cdr xs)))
 
 (define (gestalt-ref g metalevel level get-advertisements?)
-  (define v (safe-list-ref (gestalt-metalevels g) metalevel (lambda () '#())))
+  (define v (safe-list-ref (gestalt-metalevels g) metalevel (lambda () '())))
   (define p (safe-list-ref v level (lambda () '(#f . #f))))
   ((if get-advertisements? cdr car) p))
 
