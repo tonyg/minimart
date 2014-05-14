@@ -491,7 +491,7 @@
 		   (error 'matcher->finite-set "Internal error: unexpected key-close")]
 		 [else
 		  (k key mk)]))))]
-	[_ (k (set) #f)]))
+	[_ (set)]))
 
     ;; Matcher (Value Matcher -> (Setof (Listof Value))) -> (Option (Setof (Listof Value)))
     ;; Calls k with each possible sequence of atomic values at this
@@ -510,7 +510,7 @@
 							       (k (for/set [(vs (in-set vss))]
 								    (cons v vs))
 								  vsk)))))]))))]
-	[_ (k (set) #f)]))
+	[_ (k (set) #f)])) ;; TODO: ??
 
     ;; (Listof Value) Sigma -> Value
     (define (transform-seqs vs opener)
