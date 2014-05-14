@@ -8,12 +8,16 @@
 
 (provide (struct-out gestalt)
 	 gestalt-ref
+	 compile-gestalt-projection
 	 gestalt-project
+	 gestalt-project->finite-set
 	 drop-gestalt
 	 lift-gestalt
 	 simple-gestalt
 	 gestalt-empty
 	 gestalt-combine
+	 gestalt-combine-straight
+	 gestalt-combine-crossed
 	 gestalt-union
 	 gestalt-intersect
 	 gestalt-filter
@@ -60,8 +64,14 @@
   (define p (safe-list-ref v level (lambda () '(#f . #f))))
   ((if get-advertisements? cdr car) p))
 
+(define (compile-gestalt-projection spec)
+  (compile-projection spec))
+
 (define (gestalt-project g metalevel level get-advertisements? capture-spec)
   (matcher-project (gestalt-ref g metalevel level get-advertisements?) capture-spec))
+
+(define (gestalt-project->finite-set g metalevel level get-advertisements? capture-spec)
+  (matcher->finite-set (gestalt-project g metalevel level get-advertisements? capture-spec)))
 
 (define (drop-gestalt g)
   (match-define (gestalt metalevels) g)

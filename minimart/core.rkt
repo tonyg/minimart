@@ -13,11 +13,21 @@
 	 (struct-out quit)
 	 (struct-out process)
 	 (struct-out transition)
-	 ? ;; imported from route.rkt
+
+	 ;; imported from route.rkt:
+	 ?
 	 wildcard?
+	 ?!
+	 capture?
+
 	 sub
 	 pub
 	 gestalt-union
+	 gestalt-ref
+	 compile-gestalt-projection
+	 gestalt-project
+	 gestalt-project->finite-set
+
 	 spawn
 	 send
 	 feedback
