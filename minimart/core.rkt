@@ -183,11 +183,14 @@
 
 (define (update-aggregate-gestalt w pid old-g new-g)
   (struct-copy world w [aggregate-gestalt
-			(gestalt-combine (gestalt-combine old-g
-							  (world-aggregate-gestalt w)
-							  matcher-erase-path)
-					 new-g
-					 matcher-union)]))
+			(gestalt-union (gestalt-combine-straight old-g
+								 (world-aggregate-gestalt w)
+								 (lambda (side x)
+								   (case side
+								     [(left-longer) '()]
+								     [(right-longer) x]))
+								 matcher-erase-path)
+				       new-g)]))
 
 (define (issue-local-routing-update w relevant-gestalt)
   (enqueue-event (routing-update relevant-gestalt) w))
