@@ -350,7 +350,7 @@
 	   [(key-open? key) (walk (rwildseq w) k acc1 acc2)]
 	   [(key-close? key) (if (wildcard-sequence? w)
 				 (walk (wildcard-sequence-matcher w) k acc1 acc2)
-				 #f)]
+				 (values acc1 acc2))]
 	   [else (walk w k acc1 acc2)])
 	  (values acc1 acc2)))
     (match* (re1 re2)
