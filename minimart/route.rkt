@@ -23,7 +23,8 @@
 	 matcher-relabel
 	 compile-projection
 	 matcher-project
-	 matcher->finite-set)
+	 matcher->finite-set
+	 pretty-print-matcher)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
   (begin
@@ -525,6 +526,42 @@
     (lambda (m)
       (walk m (lambda (v k) (set v))))))
 
+(define (pretty-print-matcher m [port (current-output-port)] #:indent [initial-indent 0])
+  (define (d x) (display x port))
+  (define (walk i m)
+    (match m
+      [#f
+       (d "::: no further matches possible")]
+      [(wildcard-sequence k)
+       (d "...>")
+       (walk (+ i 4) k)]
+      [(? set? vs)
+       (d "{")
+       (for ((v vs)) (d v))
+       (d "}")]
+      [(? hash? h)
+       (if (zero? (hash-count h))
+	   (d " ::: empty hash!")
+	   (for/fold [(need-sep? #f)] [((key k) (in-hash h))]
+	     (when need-sep?
+	       (newline port)
+	       (d (make-string i #\space)))
+	     (d " ")
+	     (define keystr (call-with-output-string
+			     (lambda (p)
+			       (if (struct-type? key)
+				   (let-values (((name x2 x3 x4 x5 x6 x7 x8)
+						 (struct-type-info key)))
+				     (display "<s:" p)
+				     (display name p))
+				   (display key p)))))
+	     (d keystr)
+	     (walk (+ i 1 (string-length keystr)) k)
+	     #t))]))
+  (walk initial-indent m)
+  (newline port)
+  m)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (module+ test
@@ -537,37 +574,6 @@
   )
 
 (module+ test
-  (define (pretty-print-matcher m [port (current-output-port)])
-    (define (d x) (display x port))
-    (define (walk i m)
-      (match m
-	[#f
-	 (d "::: no further matches possible")]
-	[(wildcard-sequence k)
-	 (d "...>")
-	 (walk (+ i 4) k)]
-	[(? set? vs)
-	 (d "{")
-	 (for ((v vs)) (d v))
-	 (d "}")]
-	[(? hash? h)
-	 (if (zero? (hash-count h))
-	     (d " ::: empty hash!")
-	     (for/fold [(need-sep? #f)] [((key k) (in-hash h))]
-	       (when need-sep?
-		 (newline port)
-		 (d (make-string i #\space)))
-	       (d " ")
-	       (define keystr (call-with-output-string (lambda (p) (display key p))))
-	       (d keystr)
-	       (walk (+ i 1 (string-length keystr)) k)
-	       #t))]))
-    (newline port)
-    (walk 0 m)
-    (newline port)
-    (flush-output port)
-    m)
-
   (define (check-matches matcher . tests)
     (let walk ((tests tests))
       (match tests
@@ -586,20 +592,25 @@
    'foo ""
    (list (list 'z (list 'z))) "")
 
-  (void (pretty-print-matcher
+  (define (pretty-print-matcher* m)
+    (newline)
+    (pretty-print-matcher m)
+    (flush-output))
+ 
+  (void (pretty-print-matcher*
 	 (matcher-union (pattern->matcher 'A (list (list ?) 'x))
 			(pattern->matcher 'B (list (list ?) 'y)))))
 
-  (void (pretty-print-matcher
+  (void (pretty-print-matcher*
 	 (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
 			(pattern->matcher 'B (list (list 'c 'd) 'y)))))
 
-  (void (pretty-print-matcher
+  (void (pretty-print-matcher*
 	 (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
 			(pattern->matcher 'B (list (list  ?  ?) 'y)))))
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
 		   (pattern->matcher 'B (list (list  ?  ?) 'x))))
    (list 'z 'x) ""
@@ -608,7 +619,7 @@
    (list (list 'a 'b) 'x) "AB")
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
 		   (pattern->matcher 'B (list (list ?)     'y))))
    (list 'z 'y) ""
@@ -617,7 +628,7 @@
    (list (list 'a 'b) 'x) "A")
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
 		   (pattern->matcher 'B (list ? 'y))))
    (list 'z 'y) "B"
@@ -625,7 +636,7 @@
    (list (list 'a 'b) 'x) "A")
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (pattern->matcher 'A (list 'a 'b))
 		   (pattern->matcher 'B (list 'c 'd))))
    (list 'a 'b) "A"
@@ -633,13 +644,13 @@
    (list 'a 'd) ""
    (list 'c 'b) "")
 
-  (void (pretty-print-matcher (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
-					     ;; Note: this is a largely nonsense matcher,
-					     ;; since it expects no input at all
-					     (rseq EOS (rvalue 'B)))))
+  (void (pretty-print-matcher* (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
+					      ;; Note: this is a largely nonsense matcher,
+					      ;; since it expects no input at all
+					      (rseq EOS (rvalue 'B)))))
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (pattern->matcher 'A (list (list 'a 'b) 'x))
 		   (pattern->matcher 'B ?)))
    (list (list 'a 'b) 'x) "AB"
@@ -647,7 +658,7 @@
    (list 'p) "B")
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (pattern->matcher 'A (list 'a ?))
 		   (pattern->matcher 'B (list 'a (list 'b)))))
 
@@ -660,7 +671,7 @@
    (list 'a 'x) "A")
 
   (check-matches
-   (pretty-print-matcher
+   (pretty-print-matcher*
     (matcher-union (matcher-union (pattern->matcher 'A (list 'a ?))
 				  (pattern->matcher 'A (list 'q ?)))
 		   (pattern->matcher 'B (list 'a (list 'b)))))
@@ -680,7 +691,7 @@
     (matcher-union (foldr matcher-union (matcher-empty) ps)
 		   (pattern->matcher '+ (list 'Z (list ? '- ?)))))
 
-  (void (pretty-print-matcher (bigdemo)))
+  (void (pretty-print-matcher* (bigdemo)))
   (check-matches
    (bigdemo)
    (list 'a '-) "a"
@@ -700,30 +711,30 @@
    (list 'Z '((()) - -)) "Z+"
    (list '? (list '- '- '-)) "")
 
-  (check-matches (pretty-print-matcher (pattern->matcher 'A (list* 'a 'b ?)))
+  (check-matches (pretty-print-matcher* (pattern->matcher 'A (list* 'a 'b ?)))
 		 (list 'a 'b 'c 'd 'e 'f) "A"
 		 (list 'b 'c 'd 'e 'f 'a) ""
 		 3 "")
 
-  (void (pretty-print-matcher (matcher-intersect (pattern->matcher 'A (list 'a))
-						 (pattern->matcher 'B (list 'b)))))
+  (void (pretty-print-matcher* (matcher-intersect (pattern->matcher 'A (list 'a))
+						  (pattern->matcher 'B (list 'b)))))
 
   (let ((r1 (matcher-union (pattern->matcher 'A (list  ? 'b))
 			   (pattern->matcher 'A (list  ? 'c))))
 	(r2 (matcher-union (pattern->matcher 'B (list 'a  ?))
 			   (pattern->matcher 'B (list 'b  ?)))))
-    (pretty-print-matcher (matcher-union r1 r2))
-    (pretty-print-matcher (matcher-union r1 r1))
-    (pretty-print-matcher (matcher-union r2 r2))
-    (pretty-print-matcher (matcher-intersect r1 r2))
-    (pretty-print-matcher (matcher-intersect r1 r1))
-    (pretty-print-matcher (matcher-intersect r2 r2))
+    (pretty-print-matcher* (matcher-union r1 r2))
+    (pretty-print-matcher* (matcher-union r1 r1))
+    (pretty-print-matcher* (matcher-union r2 r2))
+    (pretty-print-matcher* (matcher-intersect r1 r2))
+    (pretty-print-matcher* (matcher-intersect r1 r1))
+    (pretty-print-matcher* (matcher-intersect r2 r2))
     (void))
 
-  (void (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'm 'n)))))
+  (void (pretty-print-matcher* (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'm 'n)))))
 
   (check-matches
-   (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'Z ?))))
+   (pretty-print-matcher* (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'Z ?))))
    (list 'a '-) ""
    (list 'Z '-) "XZ"
    (list '? '-) ""
@@ -742,8 +753,8 @@
    (list '? (list '- '- '-)) "")
 
   (check-matches
-   (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'Z ?))
-					    (lambda (a b) b)))
+   (pretty-print-matcher* (matcher-intersect (bigdemo) (pattern->matcher 'X (list 'Z ?))
+					     (lambda (a b) b)))
    (list 'a '-) ""
    (list 'Z '-) "X"
    (list '? '-) ""
@@ -762,8 +773,8 @@
    (list '? (list '- '- '-)) "")
 
   (check-matches
-   (pretty-print-matcher (matcher-intersect (bigdemo) (pattern->matcher 'X ?)
-					    (lambda (a b) b)))
+   (pretty-print-matcher* (matcher-intersect (bigdemo) (pattern->matcher 'X ?)
+					     (lambda (a b) b)))
    (list 'a '-) "X"
    (list 'Z '-) "X"
    (list '? '-) ""
@@ -785,12 +796,12 @@
 	 (r2 (pattern->matcher 'B (list 'a  ?)))
 	 (r12 (matcher-union r1 r2)))
     (printf "\n-=-=-=-=-=-=-=-=- erase1\n")
-    (pretty-print-matcher r1)
-    (pretty-print-matcher r2)
-    (pretty-print-matcher r12)
+    (pretty-print-matcher* r1)
+    (pretty-print-matcher* r2)
+    (pretty-print-matcher* r12)
     ;; TODO: these next two are not currently "minimal"
-    (pretty-print-matcher (matcher-erase-path r1 r12))
-    (pretty-print-matcher (matcher-erase-path r2 r12))
+    (pretty-print-matcher* (matcher-erase-path r1 r12))
+    (pretty-print-matcher* (matcher-erase-path r2 r12))
     (void))
 
   (let* ((r1 (matcher-union (pattern->matcher 'A (list 'a ?))
@@ -798,9 +809,9 @@
 	 (r2 (pattern->matcher 'B (list 'b ?)))
 	 (r12 (matcher-union r1 r2)))
     (printf "\n-=-=-=-=-=-=-=-=- erase2\n")
-    (pretty-print-matcher r12)
-    (pretty-print-matcher (matcher-erase-path r1 r12))
-    (pretty-print-matcher (matcher-erase-path r2 r12))
+    (pretty-print-matcher* r12)
+    (pretty-print-matcher* (matcher-erase-path r1 r12))
+    (pretty-print-matcher* (matcher-erase-path r2 r12))
     (void))
 
   )
