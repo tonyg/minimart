@@ -15,6 +15,7 @@
 	 lift-gestalt
 	 simple-gestalt
 	 gestalt-empty
+	 gestalt-empty?
 	 gestalt-combine
 	 gestalt-combine-straight
 	 gestalt-combine-crossed
@@ -89,6 +90,10 @@
   (gestalt (prepend metalevel '() (list (prepend level '(#f . #f) (list (cons subs advs)))))))
 
 (define (gestalt-empty) (gestalt '()))
+
+(define (gestalt-empty? g)
+  (andmap (lambda (ls) (andmap (lambda (l) (and (matcher-empty? (car l)) (matcher-empty? (cdr l)))) ls))
+	  (gestalt-metalevels g)))
 
 (define (map-zip imbalance-handler item-handler ls1 ls2)
   (let walk ((ls1 ls1) (ls2 ls2))
