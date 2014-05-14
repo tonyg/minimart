@@ -30,5 +30,6 @@
 			 (spawn b 0))
 	    (spawn echoer (void) (sub (event (read-line-evt (current-input-port) 'any) ?)
 				      #:meta-level 1))
-	    (spawn spy (void) (gestalt-union (sub ? #:level 1000)
-					     (pub ? #:level 1000))))
+	    (spawn spy (void) (gestalt-union (sub ? #:level 0)
+					     (sub ? #:level 1)
+					     (pub ? #:level 1))))

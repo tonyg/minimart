@@ -14,14 +14,16 @@
 	    #f)]
     [_ #f]))
 
-(spawn-world (spawn r (void) (list (sub ?)))
+(spawn-world (spawn r (void) (sub ?))
 	     (spawn b 0))
 
 (define (spy e s)
   (when e (log-info "SPY: ~v" e))
   #f)
 
-(spawn spy (void) (list (sub ? #:level 1000) (pub ? #:level 1000)))
+(spawn spy (void) (gestalt-union (sub ? #:level 0)
+				 (sub ? #:level 1)
+				 (pub ? #:level 1)))
 
 (define (echoer e s)
   (match e
@@ -29,5 +31,5 @@
     [(message (event _ (list line)) _ _) (transition s (send `(got-line ,line)))]
     [_ #f]))
 
-(spawn echoer (void) (list (sub (event (read-line-evt (current-input-port) 'any) ?)
-				#:meta-level 1)))
+(spawn echoer (void) (sub (event (read-line-evt (current-input-port) 'any) ?)
+			  #:meta-level 1))
