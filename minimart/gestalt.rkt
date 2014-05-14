@@ -94,9 +94,14 @@
   (let walk ((ls1 ls1) (ls2 ls2))
     (match* (ls1 ls2)
       [('() '()) '()]
-      [('() ls) (imbalance-handler ls)]
-      [(ls '()) (imbalance-handler ls)]
-      [((cons l1 ls1) (cons l2 ls2)) (cons (item-handler l1 l2) (walk ls1 ls2))])))
+      [('() ls) (imbalance-handler 'right-longer ls)]
+      [(ls '()) (imbalance-handler 'left-longer ls)]
+      [((cons l1 ls1) (cons l2 ls2))
+       (define new-item (item-handler l1 l2))
+       (define new-tail (walk ls1 ls2))
+       (if (and (null? new-tail) (equal? new-item '(#f . #f)))
+	   '()
+	   (cons new-item new-tail))])))
 
 (define (gestalt-combine g1 g2 imbalance-handler matcher-pair-combiner)
   (define (yu ls1 ls2) (map-zip imbalance-handler matcher-pair-combiner ls1 ls2))
@@ -118,12 +123,20 @@
 		     (cons (matcher-combiner (car sa1) (cdr sa2))
 			   (matcher-combiner (car sa2) (cdr sa1))))))
 
-(define (gestalt-union g1 g2) (gestalt-combine-straight g1 g2
-							(lambda (x) x)
-							matcher-union))
+(define (gestalt-union1 g1 g2) (gestalt-combine-straight g1 g2
+							 (lambda (side x) x)
+							 matcher-union))
+
+(define (gestalt-union . gs)
+  (if (null? gs)
+      (gestalt-empty)
+      (let walk ((gs gs))
+	(match gs
+	  [(list g) g]
+	  [(cons g rest) (gestalt-union1 g (walk rest))]))))
 
 (define (gestalt-intersect g1 g2) (gestalt-combine-straight g1 g2
-							    (lambda (x) '())
+							    (lambda (side x) '())
 							    matcher-intersect))
 
 ;; View on g1 from g2's perspective.
@@ -131,7 +144,7 @@
 (define (gestalt-filter g1 g2)
   (gestalt-combine-crossed g1
 			   (gestalt (map safe-cdr (gestalt-metalevels g2)))
-			   (lambda (x) '())
+			   (lambda (side x) '())
 			   (lambda (g1 g2) (matcher-intersect g1 g2
 							      (lambda (v1 v2) v1)))))
 
