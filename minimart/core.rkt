@@ -264,8 +264,8 @@
       #f ;; world is inert.
       (transition (for/fold ([w (struct-copy world w [runnable-pids (set)])])
 		      [(pid (in-set runnable-pids))]
-		    (define p (hash-ref (world-process-table w) pid))
-		    (apply-transition pid (deliver-event #f pid p) w))
+		    (define p (hash-ref (world-process-table w) pid (lambda () #f)))
+		    (if (not p) w (apply-transition pid (deliver-event #f pid p) w)))
 		  '()))) ;; world needs another check to see if more can happen.
 
 (define (world-handle-event e w)
