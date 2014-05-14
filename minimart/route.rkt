@@ -113,7 +113,11 @@
 
 (define (rupdate r key k)
   (if (matcher-empty? k)
-      (and r (hash-remove r key))
+      (and r
+	   (let ((r1 (hash-remove r key)))
+	     (if (zero? (hash-count r1))
+		 #f
+		 r1)))
       (hash-set (or r (hash)) key k)))
 
 (define (key-open? k)
@@ -174,6 +178,11 @@
 	[(r #f) r]
 	[(r1 r2) (walk r1 r2)]))))
 
+(define (smaller-hash h1 h2)
+  (if (< (hash-count h1) (hash-count h2))
+      h1
+      h2))
+
 (define (matcher-intersect re1 re2 [combine-success-values set-union])
   (let ()
     ;; INVARIANT: re1 is a part of the original re1, and likewise for
@@ -189,7 +198,15 @@
 	 (define w1 (rlookup h1 ?))
 	 (define w2 (rlookup h2 ?))
 	 (define w (and w1 w2 (walk w1 w2)))
-	 ;; TODO: if, say, w1 is #f, then we don't need to examine
+	 (define (examine-key acc key)
+	   (rupdate acc
+		    key
+		    (match* ((rlookup h1 key) (rlookup h2 key))
+		      [(#f #f) #f]
+		      [(#f k2) (walk-wild                          walk w1 key k2)]
+		      [(k1 #f) (walk-wild (lambda (a2 a1) (walk a1 a2)) w2 key k1)]
+		      [(k1 k2) (walk k1 k2)])))
+	 ;; If, say, w1 is #f, then we don't need to examine
 	 ;; every key in h2. So there are four cases:
 	 ;;  - both false -> examine the intersection of the key sets
 	 ;;                  (done by enumerating keys in the smaller hash)
@@ -197,15 +214,15 @@
 	 ;;  - both nonfalse -> examine the union of the key sets
 	 ;; This is important for avoiding examination of the whole
 	 ;; structure when wildcards aren't being used.
-	 (for/fold [(acc (rwild w))]
-	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
-	   (rupdate acc
-		    key
-		    (match* ((rlookup h1 key) (rlookup h2 key))
-		      [(#f #f) #f]
-		      [(#f k2) (walk-wild                          walk w1 key k2)]
-		      [(k1 #f) (walk-wild (lambda (a2 a1) (walk a1 a2)) w2 key k1)]
-		      [(k1 k2) (walk k1 k2)])))]))
+	 (match* (w1 w2)
+	   [(#f #f) (for/fold [(acc #f)] [(key (in-hash-keys (smaller-hash h1 h2)))]
+		      (examine-key acc key))]
+	   [(#f _) (for/fold [(acc #f)] [(key (in-hash-keys h1))] (examine-key acc key))]
+	   [(_ #f) (for/fold [(acc #f)] [(key (in-hash-keys h2))] (examine-key acc key))]
+	   [(_ _) (for/fold [(acc (rwild w))] [(key (set-remove (set-union (hash-keys h1)
+									   (hash-keys h2))
+								?))]
+		    (examine-key acc key))])]))
     (define (walk-wild walk-fn w key k)
       (and w (cond
 	      [(key-open? key) (walk-fn (rwildseq w) k)]
@@ -239,20 +256,28 @@
 		     [(#f r) r]
 		     [(r #f) (cofinite-pattern)]
 		     [(r1 r2) (walk r1 r2)]))
-	 ;; TODO: only need to examine all keys of h2 if w1 nonfalse.
-	 ;; TODO: need to ensure "minimal" remainder in cases where
-	 ;; after an erasure, a particular key's continuation is the
-	 ;; same as the wildcard's continuation. See tests/examples
-	 ;; below.
-	 (for/fold [(acc (rwild w))]
-	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+	 (define (examine-key acc key)
 	   (rupdate acc
 		    key
 		    (match* ((rlookup h1 key) (rlookup h2 key))
 		      [(#f #f) #f]
 		      [(#f k2) (walk-wild w1 key k2)]
 		      [(k1 #f) (cofinite-pattern)]
-		      [(k1 k2) (walk k1 k2)])))]))
+		      [(k1 k2) (walk k1 k2)])))
+	 ;; TODO: need to ensure "minimal" remainder in cases where
+	 ;; after an erasure, a particular key's continuation is the
+	 ;; same as the wildcard's continuation. See tests/examples
+	 ;; below.
+	 ;;
+	 ;; --
+	 ;; We only need to examine all keys of h2 if w1 nonfalse.
+	 (if w1
+	     (for/fold [(acc (rwild w))] [(key (set-remove (set-union (hash-keys h1)
+								      (hash-keys h2))
+							   ?))]
+	       (examine-key acc key))
+	     (for/fold [(acc h2)] [(key (in-hash-keys h1))]
+	       (examine-key acc key)))]))
     (define (walk-wild w key k)
       (if w
 	  (cond
@@ -331,19 +356,26 @@
 	 (define-values (r1 r2) (if (and w1 w2)
 				    (walk w1 w2 acc1 acc2)
 				    (values acc1 acc2)))
-	 ;; TODO: optimize as described in matcher-intersect.
-	 (for/fold [(r1 r1)
-		    (r2 r2)]
-	     [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+	 (define (examine-key r1 r2 key)
 	   (match* ((rlookup h1 key) (rlookup h2 key))
-		      [(#f #f) (values r1 r2)]
-		      [(#f k2)
-		       (define-values (rr1 rr2) (walk-wild w1 key k2 r1 r2))
-		       (values rr1 rr2)]
-		      [(k1 #f)
-		       (define-values (rr2 rr1) (walk-wild w2 key k1 r2 r1))
-		       (values rr1 rr2)]
-		      [(k1 k2) (walk k1 k2 r1 r2)]))]))
+	     [(#f #f) (values r1 r2)]
+	     [(#f k2)
+	      (define-values (rr1 rr2) (walk-wild w1 key k2 r1 r2))
+	      (values rr1 rr2)]
+	     [(k1 #f)
+	      (define-values (rr2 rr1) (walk-wild w2 key k1 r2 r1))
+	      (values rr1 rr2)]
+	     [(k1 k2) (walk k1 k2 r1 r2)]))
+	 ;; We optimize as described in matcher-intersect.
+	 (match* (w1 w2)
+	   [(#f #f) (for/fold [(r1 r1) (r2 r2)] [(key (in-hash-keys (smaller-hash h1 h2)))]
+		      (examine-key r1 r2 key))]
+	   [(#f _) (for/fold [(r1 r1) (r2 r2)] [(key (in-hash-keys h1))] (examine-key r1 r2 key))]
+	   [(_ #f) (for/fold [(r1 r1) (r2 r2)] [(key (in-hash-keys h2))] (examine-key r1 r2 key))]
+	   [(_ _) (for/fold [(r1 r1) (r2 r2)] [(key (set-remove (set-union (hash-keys h1)
+									   (hash-keys h2))
+								?))]
+		    (examine-key r1 r2 key))])]))
     (define (walk-wild w key k acc1 acc2)
       (if w
 	  (cond
@@ -866,6 +898,9 @@
   )
 
 (module+ test
+  (define (matcher-match-matcher-list m1 m2)
+    (define-values (s1 s2) (matcher-match-matcher m1 m2))
+    (list s1 s2))
   (let ((abc (foldr matcher-union (matcher-empty)
 		    (list (pattern->matcher 'A (list 'a ?))
 			  (pattern->matcher 'B (list 'b ?))
@@ -873,8 +908,19 @@
 	(bcd (foldr matcher-union (matcher-empty)
 		    (list (pattern->matcher 'B (list 'b ?))
 			  (pattern->matcher 'C (list 'c ?))
-			  (pattern->matcher 'd (list 'd ?))))))
-    (matcher-match-matcher abc (matcher-relabel bcd (lambda (old) (set #t))))))
+			  (pattern->matcher 'D(list 'd ?))))))
+    (check-equal? (matcher-match-matcher-list abc abc)
+		  (list (set 'A 'B 'C) (set 'A 'B 'C)))
+    (check-equal? (matcher-match-matcher-list abc (matcher-relabel bcd (lambda (old) (set #t))))
+		  (list (set 'B 'C) (set #t)))
+    (check-equal? (matcher-match-matcher-list abc (pattern->matcher 'foo ?))
+		  (list (set 'A 'B 'C) (set 'foo)))
+    (check-equal? (matcher-match-matcher-list abc (pattern->matcher 'foo (list ? ?)))
+		  (list (set 'A 'B 'C) (set 'foo)))
+    (check-equal? (matcher-match-matcher-list abc (pattern->matcher 'foo (list ? 'x)))
+		  (list (set 'A 'B 'C) (set 'foo)))
+    (check-equal? (matcher-match-matcher-list abc (pattern->matcher 'foo (list ? 'x ?)))
+		  (list (set) (set)))))
 
 (module+ test
   (check-equal? (compile-projection (list 'a 'b))
