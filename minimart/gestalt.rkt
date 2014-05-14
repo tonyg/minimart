@@ -24,7 +24,8 @@
 	 gestalt-filter
 	 gestalt-match
 	 strip-gestalt-label
-	 label-gestalt)
+	 label-gestalt
+	 pretty-print-gestalt)
 
 ;; A Gestalt is a (gestalt (Listof (Listof (Pairof Matcher
 ;; Matcher)))), representing the total interests of a process or group
@@ -182,6 +183,15 @@
 
 (define (label-gestalt g pid)
   (gestalt-matcher-transform g (lambda (m) (matcher-relabel m (lambda (old) (set pid))))))
+
+(define (pretty-print-gestalt g [port (current-output-port)])
+  (for [(metalevel (in-naturals)) (ls (in-list (gestalt-metalevels g)))]
+    (for [(level (in-naturals)) (l (in-list ls))]
+      (match-define (cons subs advs) l)
+      (when (or subs advs)
+	(fprintf port "GESTALT metalevel ~v level ~v:\n" metalevel level)
+	(when subs (fprintf port "  - subs:") (pretty-print-matcher subs port #:indent 9))
+	(when advs (fprintf port "  - advs:") (pretty-print-matcher advs port #:indent 9))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
