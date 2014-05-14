@@ -40,7 +40,8 @@
 	 deliver-event
 	 transition-bind
 	 sequence-transitions
-	 log-events-and-actions?)
+	 log-events-and-actions?
+	 routing-implementation)
 
 (define pid-stack (make-parameter '()))
 (define log-events-and-actions? (make-parameter #f))
@@ -291,3 +292,5 @@
 				 (gestalt-union old-downward new-downward))]
     [(message body meta-level feedback?)
      (enqueue-event (message body (+ meta-level 1) feedback?) w)]))
+
+(define routing-implementation 'fastrouting)
