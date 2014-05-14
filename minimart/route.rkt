@@ -268,51 +268,53 @@
 	[(r1 r2) (walk r1 r2)]))))
 
 (define (matcher-match-value r v)
-  (let walk ((vs (list v)) (stack '(())) (r r))
-    (define (walk-wild vs stack)
-      (match (rlookup r ?)
-	[#f (set)]
-	[k (walk vs stack k)]))
-    (match r
-      [(wildcard-sequence k)
-       (match stack
-	 ['() (set)]
-	 [(cons rest stack1) (walk rest stack1 k)])]
-      [(? set?)
-       (if (and (null? vs)
-		(null? stack))
-	   r
-	   (set))]
-      [(? hash?)
-       (match vs
-	 ['()
-	  (match stack
-	    ['() (set)]
-	    [(cons rest stack1)
-	     (match (rlookup r EOS)
-	       [#f (set)]
-	       [k (walk rest stack1 k)])])]
-	 [(cons (== ?) rest)
-	  (error 'matcher-match-value "Cannot match wildcard as a value")]
-	 [(cons (cons v1 v2) rest)
-	  (match (rlookup r SOP)
-	    [#f (walk-wild rest stack)]
-	    [k (walk (list v1 v2) (cons rest stack) k)])]
-	 [(cons (vector vv ...) rest)
-	  (match (rlookup r SOV)
-	    [#f (walk-wild rest stack)]
-	    [k (walk vv (cons rest stack) k)])]
-	 [(cons (? non-object-struct? s) rest)
-	  (define-values (t skipped?) (struct-info s))
-	  (when skipped? (error 'matcher-match-value "Cannot reflect on struct instance ~v" s))
-	  (define fs (cdr (vector->list (struct->vector s))))
-	  (match (rlookup r t)
-	    [#f (walk-wild rest stack)]
-	    [k (walk fs (cons rest stack) k)])]
-	 [(cons v rest)
-	  (match (rlookup r v)
-	    [#f (walk-wild rest stack)]
-	    [k (walk rest stack k)])])])))
+  (if (matcher-empty? r)
+      (set)
+      (let walk ((vs (list v)) (stack '(())) (r r))
+	(define (walk-wild vs stack)
+	  (match (rlookup r ?)
+	    [#f (set)]
+	    [k (walk vs stack k)]))
+	(match r
+	  [(wildcard-sequence k)
+	   (match stack
+	     ['() (set)]
+	     [(cons rest stack1) (walk rest stack1 k)])]
+	  [(? set?)
+	   (if (and (null? vs)
+		    (null? stack))
+	       r
+	       (set))]
+	  [(? hash?)
+	   (match vs
+	     ['()
+	      (match stack
+		['() (set)]
+		[(cons rest stack1)
+		 (match (rlookup r EOS)
+		   [#f (set)]
+		   [k (walk rest stack1 k)])])]
+	     [(cons (== ?) rest)
+	      (error 'matcher-match-value "Cannot match wildcard as a value")]
+	     [(cons (cons v1 v2) rest)
+	      (match (rlookup r SOP)
+		[#f (walk-wild rest stack)]
+		[k (walk (list v1 v2) (cons rest stack) k)])]
+	     [(cons (vector vv ...) rest)
+	      (match (rlookup r SOV)
+		[#f (walk-wild rest stack)]
+		[k (walk vv (cons rest stack) k)])]
+	     [(cons (? non-object-struct? s) rest)
+	      (define-values (t skipped?) (struct-info s))
+	      (when skipped? (error 'matcher-match-value "Cannot reflect on struct instance ~v" s))
+	      (define fs (cdr (vector->list (struct->vector s))))
+	      (match (rlookup r t)
+		[#f (walk-wild rest stack)]
+		[k (walk fs (cons rest stack) k)])]
+	     [(cons v rest)
+	      (match (rlookup r v)
+		[#f (walk-wild rest stack)]
+		[k (walk rest stack k)])])]))))
 
 (define (matcher-match-matcher re1 re2)
   (let ()
@@ -577,6 +579,12 @@
 		       (apply set (map (lambda (c) (string->symbol (string c)))
 				       (string->list expectedstr))))
 	 (walk rest)])))
+
+  (check-matches
+   #f
+   (list 'z 'x) ""
+   'foo ""
+   (list (list 'z (list 'z))) "")
 
   (void (pretty-print-matcher
 	 (matcher-union (pattern->matcher 'A (list (list ?) 'x))
