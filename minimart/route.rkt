@@ -93,12 +93,16 @@
   (and (struct? x)
        (not (object? x))))
 
+(define (vector-foldr kons knil v)
+  (for/fold [(acc knil)] [(elem (in-vector v (- (vector-length v) 1) -1 -1))]
+    (kons elem acc)))
+
 (define (pattern->matcher v p)
   (let walk ((p p) (acc (rseq EOS (rvalue v))))
     (match p
       [(== ?) (rwild acc)]
       [(cons p1 p2) (rseq SOP (walk p1 (walk p2 (rseq EOS acc))))]
-      [(vector ps ...) (rseq SOV (foldr walk (rseq EOS acc) ps))]
+      [(? vector? v) (rseq SOV (vector-foldr walk (rseq EOS acc) v))]
       [(? non-object-struct?)
        (define-values (t skipped?) (struct-info p))
        (when skipped? (error 'pattern->matcher "Cannot reflect on struct instance ~v" p))
@@ -407,7 +411,7 @@
       [(== ?!) (cons ?! acc)]
       [(== ?) (cons ? acc)]
       [(cons p1 p2) (cons SOP (walk p1 (walk p2 (cons EOS acc))))]
-      [(vector ps ...) (cons SOV (foldr walk (cons EOS acc) ps))]
+      [(? vector? v) (cons SOV (vector-foldr walk (cons EOS acc) v))]
       [(? non-object-struct?)
        (define-values (t skipped?) (struct-info p))
        (when skipped? (error 'pattern->matcher "Cannot reflect on struct instance ~v" p))
