@@ -96,7 +96,7 @@
   (andmap (lambda (ls) (andmap (lambda (l) (and (matcher-empty? (car l)) (matcher-empty? (cdr l)))) ls))
 	  (gestalt-metalevels g)))
 
-(define (map-zip imbalance-handler item-handler ls1 ls2)
+(define (map-zip imbalance-handler item-handler right-unit ls1 ls2)
   (let walk ((ls1 ls1) (ls2 ls2))
     (match* (ls1 ls2)
       [('() '()) '()]
@@ -105,13 +105,13 @@
       [((cons l1 ls1) (cons l2 ls2))
        (define new-item (item-handler l1 l2))
        (define new-tail (walk ls1 ls2))
-       (if (and (null? new-tail) (equal? new-item '(#f . #f)))
+       (if (and (null? new-tail) (equal? new-item right-unit))
 	   '()
 	   (cons new-item new-tail))])))
 
 (define (gestalt-combine g1 g2 imbalance-handler matcher-pair-combiner)
-  (define (yu ls1 ls2) (map-zip imbalance-handler matcher-pair-combiner ls1 ls2))
-  (define (xu mls1 mls2) (map-zip imbalance-handler yu mls1 mls2))
+  (define (yu ls1 ls2) (map-zip imbalance-handler matcher-pair-combiner '(#f . #f) ls1 ls2))
+  (define (xu mls1 mls2) (map-zip imbalance-handler yu '() mls1 mls2))
   (gestalt (xu (gestalt-metalevels g1)
 	       (gestalt-metalevels g2))))
 
