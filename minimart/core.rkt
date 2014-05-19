@@ -189,12 +189,12 @@
 
 (define (update-aggregate-gestalt w pid old-g new-g)
   (struct-copy world w [aggregate-gestalt
-			(gestalt-union (gestalt-combine-straight old-g
-								 (world-aggregate-gestalt w)
+			(gestalt-union (gestalt-combine-straight (world-aggregate-gestalt w)
+								 old-g
 								 (lambda (side x)
 								   (case side
-								     [(left-longer) '()]
-								     [(right-longer) x]))
+								     [(left-longer) x]
+								     [(right-longer) '()]))
 								 matcher-erase-path)
 				       new-g)]))
 
