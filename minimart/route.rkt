@@ -23,7 +23,7 @@
 	 matcher-relabel
 	 compile-projection
 	 matcher-project
-	 matcher->finite-set
+	 matcher-key-set
 	 pretty-print-matcher)
 
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
@@ -236,9 +236,13 @@
       [(r #f) #f]
       [(r1 r2) (walk r1 r2)])))
 
+(define (set-subtract/false s1 s2)
+  (define r (set-subtract s1 s2))
+  (if (set-empty? r) #f r))
+
 ;; Removes re2's mappings from re1. Assumes re2 has previously been union'd into re1.
 ;; The combine-successes function should return #f to signal "no remaining success values".
-(define (matcher-erase-path re1 re2 [combine-successes set-subtract])
+(define (matcher-erase-path re1 re2 [combine-successes set-subtract/false])
   (define (cofinite-pattern)
     (error 'matcher-erase-path "Cofinite pattern required"))
   (define (walk path aggregate)
@@ -246,7 +250,9 @@
       [((wildcard-sequence r1) (wildcard-sequence r2)) (rwildseq (walk r1 r2))]
       [((wildcard-sequence r1) r2) (cofinite-pattern)]
       [(r1 (wildcard-sequence r2)) (walk r1 (expand-wildseq r2))]
-      [((success v1) (success v2)) (success (combine-successes v1 v2))]
+      [((success v1) (success v2))
+       (define new-v (combine-successes v1 v2))
+       (and new-v (success new-v))]
       [((? hash? h1) (? hash? h2))
        (define w1 (rlookup h1 ?))
        (define w2 (rlookup h2 ?))
@@ -416,8 +422,9 @@
       [(? hash?) (error 'pattern->matcher "Cannot match on hash tables at present")]
       [other (cons other acc)])))
 
-;; Matcher × CompiledProjection → Matcher
+;; Matcher × CompiledProjection [× (Value -> (Option Value))] → Matcher
 ;; The result matches a vector of length equal to the number of captures.
+;; The project-success function should return #f to signal "no success values".
 (define matcher-project
   ;; TODO: skip-nested, capture-nested, and the ? and ?! cases in
   ;; walk-out all share a suspicious amount of code. Refactor it away.
@@ -449,58 +456,60 @@
 		[else (rupdate acc key (capture-nested mk k))])))]
 	[_ (matcher-empty)]))
 
-    (define (walk-out m spec)
-      (match spec
-	['()
-	 (match m
-	   [(success v) (rseq EOS (rseq EOS (success #t)))]
-	   ;; ^ the #t yields a matcher that does not preserve map values.
-	   [_ (matcher-empty)])]
+    (lambda (m spec [project-success values])
+      (define (walk-out m spec)
+	(match spec
+	  ['()
+	   (match m
+	     [(success v)
+	      (define new-v (project-success v))
+	      (if new-v
+		  (rseq EOS (rseq EOS (success new-v)))
+		  (matcher-empty))]
+	     [_ (matcher-empty)])]
 
-	[(cons (== ?) k)
-	 (match m
-	   [(wildcard-sequence _) (walk-out m k)]
-	   [(? hash?)
-	    (for/fold [(acc (walk-out (rlookup m ?) k))] [((key mk) (in-hash m))]
-	      (if (eq? key ?)
-		  acc
-		  (matcher-union acc (cond
-				      [(key-open? key) (skip-nested mk (lambda (mk) (walk-out mk k)))]
-				      [(key-close? key) #f]
-				      [else (walk-out mk k)]))))]
-	   [_ (matcher-empty)])]
+	  [(cons (== ?) k)
+	   (match m
+	     [(wildcard-sequence _) (walk-out m k)]
+	     [(? hash?)
+	      (for/fold [(acc (walk-out (rlookup m ?) k))] [((key mk) (in-hash m))]
+		(if (eq? key ?)
+		    acc
+		    (matcher-union acc (cond
+					[(key-open? key) (skip-nested mk (lambda (mk) (walk-out mk k)))]
+					[(key-close? key) #f]
+					[else (walk-out mk k)]))))]
+	     [_ (matcher-empty)])]
 
-	[(cons (== ?!) k)
-	 (match m
-	   [(wildcard-sequence _) (rwild (walk-out m k))]
-	   [(? hash?)
-	    (for/fold [(acc (rwild (walk-out (rlookup m ?) k)))] [((key mk) (in-hash m))]
-	      (if (eq? key ?)
-		  acc
-		  (cond
-		   [(key-open? key)
-		    (rupdate acc key (capture-nested mk (lambda (mk) (walk-out mk k))))]
-		   [(key-close? key) acc]
-		   [else (rupdate acc key (walk-out mk k))])))]
-	   [_ (matcher-empty)])]
+	  [(cons (== ?!) k)
+	   (match m
+	     [(wildcard-sequence _) (rwild (walk-out m k))]
+	     [(? hash?)
+	      (for/fold [(acc (rwild (walk-out (rlookup m ?) k)))] [((key mk) (in-hash m))]
+		(if (eq? key ?)
+		    acc
+		    (cond
+		     [(key-open? key)
+		      (rupdate acc key (capture-nested mk (lambda (mk) (walk-out mk k))))]
+		     [(key-close? key) acc]
+		     [else (rupdate acc key (walk-out mk k))])))]
+	     [_ (matcher-empty)])]
 
-	[(cons sigma k)
-	 (match m
-	   [(wildcard-sequence mk)
-	    (if (key-close? sigma)
-		(walk-out mk k)
-		(walk-out m k))]
-	   [(? hash?)
-	    (matcher-union (walk-out (rlookup m sigma) k)
-			   (walk-out (rlookup m ?) k))]
-	   [_ (matcher-empty)])]))
-
-    (lambda (m spec)
+	  [(cons sigma k)
+	   (match m
+	     [(wildcard-sequence mk)
+	      (if (key-close? sigma)
+		  (walk-out mk k)
+		  (walk-out m k))]
+	     [(? hash?)
+	      (matcher-union (walk-out (rlookup m sigma) k)
+			     (walk-out (rlookup m ?) k))]
+	     [_ (matcher-empty)])]))
       (rseq SOV (walk-out m spec)))))
 
 ;; Matcher → (Option (Setof Value))
 ;; Multiplies out unions. Returns #f if any dimension of m is infinite.
-(define matcher->finite-set
+(define matcher-key-set
   (let ()
     ;; Matcher (Value Matcher -> (Setof Value)) -> (Option (Setof Value))
     ;; Calls k with each possible atomic value at this matcher
@@ -520,7 +529,7 @@
 				    (maybe-union acc
 						 (k (transform-seqs vs key) vsk)))))]
 		  [(key-close? key)
-		   (error 'matcher->finite-set "Internal error: unexpected key-close")]
+		   (error 'matcher-key-set "Internal error: unexpected key-close")]
 		 [else
 		  (k key mk)]))))]
 	[_ (set)]))
@@ -936,49 +945,57 @@
 
   (check-equal? (matcher-project (matcher-union (pattern->matcher SA (list 'a 'a))
 						(pattern->matcher SB (list 'a 'b)))
-				 (compile-projection (list 'a ?!)))
+				 (compile-projection (list 'a ?!))
+				 (lambda (v) #t))
 		(matcher-union (pattern->matcher #t (vector 'a))
 			       (pattern->matcher #t (vector 'b))))
 
   (check-equal? (matcher-project (matcher-union (pattern->matcher SA (list 'a 'a))
 						(pattern->matcher SB (list 'a (vector 'b 'c 'd))))
-				 (compile-projection (list 'a ?!)))
+				 (compile-projection (list 'a ?!))
+				 (lambda (v) #t))
 		(matcher-union (pattern->matcher #t (vector 'a))
 			       (pattern->matcher #t (vector (vector 'b 'c 'd)))))
 
   (check-equal? (matcher-project (matcher-union (pattern->matcher SA (list 'a 'a))
 						(pattern->matcher SB (list 'a (vector 'b ? 'd))))
-				 (compile-projection (list 'a ?!)))
+				 (compile-projection (list 'a ?!))
+				 (lambda (v) #t))
 		(matcher-union (pattern->matcher #t (vector 'a))
 			       (pattern->matcher #t (vector (vector 'b ? 'd)))))
 
-  (check-equal? (matcher->finite-set
+  (check-equal? (matcher-key-set
 		 (matcher-project (matcher-union (pattern->matcher SA (list 'a 'a))
 						 (pattern->matcher SB (list 'a 'b)))
-				  (compile-projection (list 'a ?!))))
+				  (compile-projection (list 'a ?!))
+				  (lambda (v) #t)))
 		(set '#(a) '#(b)))
 
-  (check-equal? (matcher->finite-set
+  (check-equal? (matcher-key-set
 		 (matcher-project (matcher-union (pattern->matcher SA (list 'a 'a))
 						 (pattern->matcher SB (list 'a (vector 'b 'c 'd))))
-				  (compile-projection (list 'a ?!))))
+				  (compile-projection (list 'a ?!))
+				  (lambda (v) #t)))
 		(set '#(a) '#(#(b c d))))
 
-  (check-equal? (matcher->finite-set
+  (check-equal? (matcher-key-set
 		 (matcher-project (matcher-union (pattern->matcher SA (list 'a 'a))
 						 (pattern->matcher SB (list 'a (vector 'b ? 'd))))
-				  (compile-projection (list 'a ?!))))
+				  (compile-projection (list 'a ?!))
+				  (lambda (v) #t)))
 		#f)
 
   (check-equal? (matcher-project (matcher-union (pattern->matcher SA (cons 1 2))
 						(pattern->matcher SB (cons 3 4)))
-				 (compile-projection (cons ?! ?!)))
+				 (compile-projection (cons ?! ?!))
+				 (lambda (v) #t))
 		(matcher-union (pattern->matcher #t (vector 1 2))
 			       (pattern->matcher #t (vector 3 4))))
 
-  (check-equal? (matcher->finite-set
+  (check-equal? (matcher-key-set
 		 (matcher-project (matcher-union (pattern->matcher SA (cons 1 2))
 						 (pattern->matcher SB (cons 3 4)))
-				  (compile-projection (cons ?! ?!))))
+				  (compile-projection (cons ?! ?!))
+				  (lambda (v) #t)))
 		(set '#(1 2) '#(3 4)))
   )
