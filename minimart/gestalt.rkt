@@ -10,7 +10,7 @@
 	 gestalt-ref
 	 compile-gestalt-projection
 	 gestalt-project
-	 gestalt-project->finite-set
+	 gestalt-project-key-set
 	 drop-gestalt
 	 lift-gestalt
 	 simple-gestalt
@@ -72,8 +72,8 @@
 (define (gestalt-project g metalevel level get-advertisements? capture-spec)
   (matcher-project (gestalt-ref g metalevel level get-advertisements?) capture-spec))
 
-(define (gestalt-project->finite-set g metalevel level get-advertisements? capture-spec)
-  (matcher->finite-set (gestalt-project g metalevel level get-advertisements? capture-spec)))
+(define (gestalt-project-key-set g metalevel level get-advertisements? capture-spec)
+  (matcher-key-set (gestalt-project g metalevel level get-advertisements? capture-spec)))
 
 (define (drop-gestalt g)
   (match-define (gestalt metalevels) g)

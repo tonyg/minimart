@@ -30,7 +30,7 @@
 	 gestalt-ref
 	 compile-gestalt-projection
 	 gestalt-project
-	 gestalt-project->finite-set
+	 gestalt-project-key-set
 	 pretty-print-gestalt
 
 	 spawn
