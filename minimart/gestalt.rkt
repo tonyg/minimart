@@ -20,7 +20,6 @@
 	 gestalt-combine-straight
 	 gestalt-combine-crossed
 	 gestalt-union
-	 gestalt-intersect
 	 gestalt-filter
 	 gestalt-match
 	 strip-gestalt-label
@@ -140,10 +139,6 @@
 	(match gs
 	  [(list g) g]
 	  [(cons g rest) (gestalt-union1 g (walk rest))]))))
-
-(define (gestalt-intersect g1 g2) (gestalt-combine-straight g1 g2
-							    (lambda (side x) '())
-							    matcher-intersect))
 
 ;; View on g1 from g2's perspective.
 ;; Drops a level from g2 and intersects crossed.

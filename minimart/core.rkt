@@ -25,7 +25,7 @@
 	 pub
 	 gestalt-empty
 	 gestalt-union
-	 gestalt-intersect
+	 gestalt-filter
 	 gestalt-empty?
 	 gestalt-ref
 	 compile-gestalt-projection
