@@ -75,8 +75,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Protocol and utilities
 
-(define (sub p #:meta-level [ml 0] #:level [l 0]) (simple-gestalt (pattern->matcher #t p) #f l ml))
-(define (pub p #:meta-level [ml 0] #:level [l 0]) (simple-gestalt #f (pattern->matcher #t p) l ml))
+(define (sub p #:meta-level [ml 0] #:level [l 0])
+  (simple-gestalt (pattern->matcher (set #t) p) #f l ml))
+(define (pub p #:meta-level [ml 0] #:level [l 0])
+  (simple-gestalt #f (pattern->matcher (set #t) p) l ml))
 
 (define (spawn behavior state [gestalt (gestalt-empty)]) (process gestalt behavior state))
 (define (send body #:meta-level [ml 0]) (message body ml #f))

@@ -152,7 +152,7 @@
 			   (gestalt (map safe-cdr (gestalt-metalevels g2)))
 			   (lambda (side x) '())
 			   (lambda (g1 g2) (matcher-intersect g1 g2
-							      (lambda (v1 v2) v1)))))
+							      #:combine (lambda (v1 v2) v1)))))
 
 (define (gestalt-match g1 g2)
   (define (zu sa1 sa2)
