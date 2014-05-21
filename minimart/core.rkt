@@ -70,10 +70,6 @@
 ;; Behavior : maybe event * state -> transition
 (struct transition (state actions) #:transparent)
 
-;; TODO: Reintroduce "trigger-guard" from the naive implementation
-;; perhaps. "Process table maps to these; idea is to avoid redundant
-;; signalling of routing-updates where possible"
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Protocol and utilities
 
@@ -106,6 +102,32 @@
 
 (define (sequence-transitions t0 . steps)
   (foldl transition-bind t0 steps))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Trigger guards
+
+;; Trigger-guards only pass through routing updates if there has been
+;; a change.
+(struct trigger-guard (gestalt handler state) #:transparent)
+
+(define (trigger-guard-handle e s0)
+  (match-define (trigger-guard old-gestalt handler old-state) s0)
+  (define (deliver s)
+    (match (handler e old-state)
+      [#f
+       (if (eq? s s0) #f (transition s '()))]
+      [(transition new-state actions)
+       (transition (struct-copy trigger-guard s [state new-state]) actions)]))
+  (match e
+    [(routing-update new-gestalt)
+     (if (equal? new-gestalt old-gestalt)
+	 #f
+	 (deliver (struct-copy trigger-guard s0 [gestalt new-gestalt])))]
+    [_ (deliver s0)]))
+
+(define (trigger-guard-process p)
+  (match-define (process _ b s) p)
+  (struct-copy process p [behavior trigger-guard-handle] [state (trigger-guard (gestalt-empty) b s)]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; World implementation
@@ -210,6 +232,7 @@
   (match a
     [(? process? new-p)
      (let* ((new-pid (world-next-pid w))
+	    (new-p (trigger-guard-process new-p))
 	    (new-gestalt (label-gestalt (process-gestalt new-p) new-pid))
 	    (new-p (struct-copy process new-p [gestalt new-gestalt]))
 	    (w (struct-copy world w
