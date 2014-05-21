@@ -4,6 +4,7 @@
 (require racket/match)
 (require racket/list)
 (require "core.rkt")
+(require "gestalt.rkt")
 
 (provide (struct-out event)
 	 run-ground)
@@ -16,8 +17,7 @@
 (define event-projection (compile-gestalt-projection (event ?! ?)))
 
 (define (extract-active-events gestalt)
-  (define es
-    (matcher-key-set (matcher-project-level (gestalt-project gestalt 0 #f event-projection) 0)))
+  (define es (matcher-key-set (gestalt-project gestalt 0 0 #f event-projection)))
   ;; TODO: how should the following error be handled, ideally?
   ;; In principle, security restrictions should make it impossible.
   ;; But absent those, what should be done? Should an offending

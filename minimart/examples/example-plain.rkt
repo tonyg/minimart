@@ -38,8 +38,6 @@
   (match e
     [(routing-update g)
      (printf "EMPTY? ~v\n" (gestalt-empty? g))
-     (printf "REF:")
-     (pretty-print-matcher (gestalt-ref g 0 #f) #:indent 4)
      (printf "INTERSECTED:\n")
      (pretty-print-gestalt (gestalt-filter g (pub (set-timer ? ? ?) #:level 1)))
      #f]

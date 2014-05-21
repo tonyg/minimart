@@ -20,20 +20,10 @@
 	 ?!
 	 capture?
 	 pretty-print-matcher
+	 matcher-key-set
 
 	 sub
 	 pub
-	 gestalt-empty
-	 gestalt-union
-	 gestalt-filter
-	 gestalt-empty?
-	 gestalt-ref
-	 compile-gestalt-projection
-	 gestalt-project
-	 matcher-project-level
-	 matcher-project
-	 matcher-key-set
-	 pretty-print-gestalt
 
 	 spawn
 	 send
@@ -269,8 +259,7 @@
 (define (dispatch-event e w)
   (match e
     [(message body meta-level feedback?)
-     (define matcher (gestalt-ref (world-aggregate-gestalt w) meta-level feedback?))
-     (define pids (levels->pids (matcher-match-value matcher body '())))
+     (define pids (gestalt-match-value (world-aggregate-gestalt w) body meta-level feedback?))
      (define pt (world-process-table w))
      (for/fold ([w w]) [(pid (in-set pids))]
        (apply-transition pid (deliver-event e pid (hash-ref pt pid)) w))]

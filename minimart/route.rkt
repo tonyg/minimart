@@ -26,6 +26,9 @@
 	 matcher-key-set
 	 pretty-print-matcher)
 
+;; TODO: consider currying matcher-union and friends to specialize
+;; them for specific combiners.
+
 (define-syntax-rule (define-singleton-struct singleton-name struct-name print-representation)
   (begin
     (struct struct-name ()
