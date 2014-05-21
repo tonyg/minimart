@@ -3,6 +3,21 @@
 (require (only-in racket/port read-line-evt))
 (require "../drivers/timer.rkt")
 
+(define (quasi-spy e s)
+  (printf "----------------------------------------\n")
+  (printf "QUASI-SPY:\n")
+  (match e
+    [(routing-update g) (pretty-print-gestalt g)]
+    [other
+     (write other)
+     (newline)])
+  (printf "========================================\n")
+  #f)
+(spawn quasi-spy (void) (gestalt-union (sub ? #:level 10 #:meta-level 1)
+				       (pub ? #:level 10 #:meta-level 1)
+				       (sub ? #:level 10)
+				       (pub ? #:level 10)))
+
 (define (r e s)
   (match e
     [(message body _ _) (transition s (send `(print got ,body) #:meta-level 1))]
@@ -32,7 +47,7 @@
     [(routing-update g)
      (printf "EMPTY? ~v\n" (gestalt-empty? g))
      (printf "REF:")
-     (pretty-print-matcher (gestalt-ref g 0 0 #f) #:indent 4)
+     (pretty-print-matcher (gestalt-ref g 0 #f) #:indent 4)
      (printf "INTERSECTED:\n")
      (pretty-print-gestalt (gestalt-filter g (pub (set-timer ? ? ?) #:level 1)))
      #f]

@@ -16,7 +16,8 @@
 (define event-projection (compile-gestalt-projection (event ?! ?)))
 
 (define (extract-active-events gestalt)
-  (define es (gestalt-project-key-set gestalt 0 0 #f event-projection))
+  (define es
+    (matcher-key-set (matcher-project-level (gestalt-project gestalt 0 #f event-projection) 0)))
   ;; TODO: how should the following error be handled, ideally?
   ;; In principle, security restrictions should make it impossible.
   ;; But absent those, what should be done? Should an offending

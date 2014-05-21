@@ -347,63 +347,57 @@
 		[k (walk rest stack k)])])]))))
 
 (define (matcher-match-matcher re1 re2
-			       #:combine [combine-successes set-union]
-			       #:empty [result-nil (set)])
+			       #:combine [combine-successes (lambda (v1 v2 a)
+							      (cons (set-union (car a) v1)
+								    (set-union (cdr a) v2)))]
+			       #:empty [result-nil (cons (set) (set))])
   (let ()
-    (define (walk re1 re2 acc1 acc2)
+    (define (walk re1 re2 acc)
       (match* (re1 re2)
-	[((wildcard-sequence r1) (wildcard-sequence r2)) (walk r1 r2 acc1 acc2)]
-	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2 acc1 acc2)]
-	[(r1 (wildcard-sequence r2)) (walk r1 (expand-wildseq r2) acc1 acc2)]
-	[((success v1) (success v2)) (values (combine-successes acc1 v1)
-					     (combine-successes acc2 v2))]
+	[((wildcard-sequence r1) (wildcard-sequence r2)) (walk r1 r2 acc)]
+	[((wildcard-sequence r1) r2) (walk (expand-wildseq r1) r2 acc)]
+	[(r1 (wildcard-sequence r2)) (walk r1 (expand-wildseq r2) acc)]
+	[((success v1) (success v2)) (combine-successes v1 v2 acc)]
 	[((? hash? h1) (? hash? h2))
 	 (define w1 (rlookup h1 ?))
 	 (define w2 (rlookup h2 ?))
-	 (define-values (r1 r2) (if (and w1 w2)
-				    (walk w1 w2 acc1 acc2)
-				    (values acc1 acc2)))
-	 (define (examine-key r1 r2 key)
+	 (define r (if (and w1 w2)
+		       (walk w1 w2 acc)
+		       acc))
+	 (define (examine-key r key)
 	   (match* ((rlookup h1 key) (rlookup h2 key))
-	     [(#f #f) (values r1 r2)]
-	     [(#f k2)
-	      (define-values (rr1 rr2) (walk-wild w1 key k2 r1 r2))
-	      (values rr1 rr2)]
-	     [(k1 #f)
-	      (define-values (rr2 rr1) (walk-wild w2 key k1 r2 r1))
-	      (values rr1 rr2)]
-	     [(k1 k2) (walk k1 k2 r1 r2)]))
+	     [(#f #f) r]
+	     [(#f k2) (walk-wild walk w1 key k2 r)]
+	     [(k1 #f) (walk-wild (lambda (re2 re1 acc) (walk re1 re2 acc)) w2 key k1 r)]
+	     [(k1 k2) (walk k1 k2 r)]))
 	 ;; We optimize as described in matcher-intersect.
 	 (match* (w1 w2)
-	   [(#f #f) (for/fold [(r1 r1) (r2 r2)] [(key (in-hash-keys (smaller-hash h1 h2)))]
-		      (examine-key r1 r2 key))]
-	   [(#f _) (for/fold [(r1 r1) (r2 r2)] [(key (in-hash-keys h1))] (examine-key r1 r2 key))]
-	   [(_ #f) (for/fold [(r1 r1) (r2 r2)] [(key (in-hash-keys h2))] (examine-key r1 r2 key))]
-	   [(_ _) (for/fold [(r1 r1) (r2 r2)] [(key (set-remove (set-union (hash-keys h1)
-									   (hash-keys h2))
-								?))]
-		    (examine-key r1 r2 key))])]))
-    (define (walk-wild w key k acc1 acc2)
+	   [(#f #f) (for/fold [(r r)] [(key (in-hash-keys (smaller-hash h1 h2)))] (examine-key r key))]
+	   [(#f _) (for/fold [(r r)] [(key (in-hash-keys h1))] (examine-key r key))]
+	   [(_ #f) (for/fold [(r r)] [(key (in-hash-keys h2))] (examine-key r key))]
+	   [(_ _) (for/fold [(r r)] [(key (set-remove (set-union (hash-keys h1) (hash-keys h2)) ?))]
+		    (examine-key r key))])]))
+    (define (walk-wild walker w key k acc)
       (if w
 	  (cond
-	   [(key-open? key) (walk (rwildseq w) k acc1 acc2)]
+	   [(key-open? key) (walker (rwildseq w) k acc)]
 	   [(key-close? key) (if (wildcard-sequence? w)
-				 (walk (wildcard-sequence-matcher w) k acc1 acc2)
-				 (values acc1 acc2))]
-	   [else (walk w k acc1 acc2)])
-	  (values acc1 acc2)))
+				 (walker (wildcard-sequence-matcher w) k acc)
+				 acc)]
+	   [else (walker w k acc)])
+	  acc))
     (match* (re1 re2)
-      [(#f r) (values result-nil result-nil)]
-      [(r #f) (values result-nil result-nil)]
-      [(r1 r2) (walk r1 r2 result-nil result-nil)])))
+      [(#f r) result-nil]
+      [(r #f) result-nil]
+      [(r1 r2) (walk r1 r2 result-nil)])))
 
 (define (matcher-relabel m f)
   (let walk ((m m))
     (match m
       [#f #f]
-      [(success v) (success (f v))]
-      [(wildcard-sequence m1) (wildcard-sequence (walk m1))]
-      [(? hash?) (for/hash [((k v) (in-hash m))] (values k (walk v)))])))
+      [(success v) (rsuccess (f v))]
+      [(wildcard-sequence m1) (rwildseq (walk m1))]
+      [(? hash?) (for/fold [(acc #f)] [((k v) (in-hash m))] (rupdate acc k (walk v)))])))
 
 (define (compile-projection p)
   ;; Extremely similar to pattern->matcher. Besides use of conses
@@ -928,7 +922,7 @@
 
 (module+ test
   (define (matcher-match-matcher-list m1 m2)
-    (define-values (s1 s2) (matcher-match-matcher m1 m2))
+    (match-define (cons s1 s2) (matcher-match-matcher m1 m2))
     (list s1 s2))
   (let ((abc (foldr matcher-union (matcher-empty)
 		    (list (pattern->matcher SA (list 'a ?))
@@ -940,6 +934,10 @@
 			  (pattern->matcher SD (list 'd ?))))))
     (check-equal? (matcher-match-matcher-list abc abc)
 		  (list (set 'A 'B 'C) (set 'A 'B 'C)))
+    (check-equal? (matcher-match-matcher abc abc
+					 #:combine (lambda (v1 v2 a) (set-union v2 a))
+					 #:empty (set))
+		  (set 'A 'B 'C))
     (check-equal? (matcher-match-matcher-list abc (matcher-relabel bcd (lambda (old) (set #t))))
 		  (list (set 'B 'C) (set #t)))
     (check-equal? (matcher-match-matcher-list abc (pattern->matcher Sfoo ?))

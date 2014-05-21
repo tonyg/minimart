@@ -30,7 +30,9 @@
 	 gestalt-ref
 	 compile-gestalt-projection
 	 gestalt-project
-	 gestalt-project-key-set
+	 matcher-project-level
+	 matcher-project
+	 matcher-key-set
 	 pretty-print-gestalt
 
 	 spawn
@@ -75,10 +77,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Protocol and utilities
 
-(define (sub p #:meta-level [ml 0] #:level [l 0])
-  (simple-gestalt (pattern->matcher (set #t) p) #f l ml))
-(define (pub p #:meta-level [ml 0] #:level [l 0])
-  (simple-gestalt #f (pattern->matcher (set #t) p) l ml))
+(define (sub p #:meta-level [ml 0] #:level [l 0]) (simple-gestalt #f p l ml))
+(define (pub p #:meta-level [ml 0] #:level [l 0]) (simple-gestalt #t p l ml))
 
 (define (spawn behavior state [gestalt (gestalt-empty)]) (process gestalt behavior state))
 (define (send body #:meta-level [ml 0]) (message body ml #f))
@@ -191,13 +191,8 @@
 
 (define (update-aggregate-gestalt w pid old-g new-g)
   (struct-copy world w [aggregate-gestalt
-			(gestalt-union (gestalt-combine-straight (world-aggregate-gestalt w)
-								 old-g
-								 (lambda (side x)
-								   (case side
-								     [(left-longer) x]
-								     [(right-longer) '()]))
-								 matcher-erase-path)
+			(gestalt-union (gestalt-erase-path (world-aggregate-gestalt w)
+							   old-g)
 				       new-g)]))
 
 (define (issue-local-routing-update w relevant-gestalt)
@@ -251,14 +246,14 @@
 (define (dispatch-event e w)
   (match e
     [(message body meta-level feedback?)
-     (define matcher (gestalt-ref (world-aggregate-gestalt w) meta-level 0 feedback?))
-     (define pids (matcher-match-value matcher body))
+     (define matcher (gestalt-ref (world-aggregate-gestalt w) meta-level feedback?))
+     (define pids (levels->pids (matcher-match-value matcher body '())))
      (define pt (world-process-table w))
      (for/fold ([w w]) [(pid (in-set pids))]
        (apply-transition pid (deliver-event e pid (hash-ref pt pid)) w))]
     [(routing-update affected-subgestalt)
      (define g (world-aggregate-gestalt w))
-     (define-values (affected-pids uninteresting) (gestalt-match g affected-subgestalt))
+     (define affected-pids (gestalt-match affected-subgestalt g))
      (define pt (world-process-table w))
      (for/fold ([w w]) [(pid (in-set affected-pids))]
        (define p (hash-ref pt pid))
