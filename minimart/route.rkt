@@ -275,7 +275,7 @@
        ;; below.
        ;;
        ;; --
-       ;; We only need to examine all keys of h2 if w1 nonfalse.
+       ;; We only need to examine all keys of h1 if w2 nonfalse.
        (if w2
 	   (for/fold [(acc (rwild w))] [(key (set-remove (set-union (hash-keys h1)
 								    (hash-keys h2))
