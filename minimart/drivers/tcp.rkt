@@ -3,9 +3,9 @@
 (require racket/match)
 (require (prefix-in tcp: racket/tcp))
 (require (only-in racket/port read-bytes-avail!-evt))
-(require (only-in web-server/private/util exn->string))
 (require "../main.rkt")
 (require "../demand-matcher.rkt")
+(require "../exn-util.rkt")
 
 (require racket/unit)
 (require net/tcp-sig)

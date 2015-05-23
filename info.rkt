@@ -7,5 +7,4 @@
 	       "net-lib"
 	       "profile-lib"
 	       "rackunit-lib"
-	       "web-server-lib"
 	       ))

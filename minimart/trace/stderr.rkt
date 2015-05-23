@@ -6,10 +6,10 @@
 (require racket/match)
 (require racket/pretty)
 (require (only-in racket/string string-join))
-(require (only-in web-server/private/util exn->string))
 (require "../core.rkt")
 (require "../gestalt.rkt")
 (require "../trace.rkt")
+(require "../exn-util.rkt")
 
 (define (env-aref varname default alist)
   (define key (or (getenv varname) default))
@@ -131,7 +131,7 @@
 	   (with-color WHITE-ON-RED
 		       (output "Process ~a died with exception:\n~a\n"
 			       pidstr
-			       (exn->string exn))))
+                               (exn->string exn))))
 	 (when (or relevant-exn? show-process-states-post?)
 	   (when t
 	     (unless (boring-state? (transition-state t))

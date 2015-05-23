@@ -8,7 +8,7 @@
 	 trace-process-step
 	 trace-internal-step)
 
-(require (only-in web-server/private/util exn->string))
+(require "exn-util.rkt")
 
 (define trace-logger (make-logger 'minimart-trace))
 
