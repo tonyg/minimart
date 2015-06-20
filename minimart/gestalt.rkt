@@ -7,6 +7,7 @@
 (require (only-in racket/port with-output-to-string))
 
 (require "route.rkt")
+(require "tset.rkt")
 
 (provide (struct-out gestalt)
 	 (struct-out projection)
@@ -139,7 +140,7 @@
 (define (gestalt-match-value g body metalevel is-feedback?)
   (define extract-matcher (if is-feedback? cdr car)) ;; feedback targets advertisers/publishers
   (define (pids-at level) (matcher-match-value (extract-matcher level) body))
-  (apply set-union (set) (map pids-at (gestalt-metalevel-ref g metalevel))))
+  (foldr tset-union (datum-tset) (map pids-at (gestalt-metalevel-ref g metalevel))))
 
 ;; project-subs : Projection [#:meta-level Nat] [#:level Nat] -> GestaltProjection
 ;; project-pubs : Projection [#:meta-level Nat] [#:level Nat] -> GestaltProjection
@@ -365,14 +366,14 @@
 	(match ls2
 	  ['() acc]
 	  [(cons (cons subs2 advs2) lrest2)
-	   (loop lrest2 (set-union (matcher-match-matcher subs1 advs2)
-				   (matcher-match-matcher advs1 subs2)
-				   acc))])))
+	   (loop lrest2 (tset-union (tset-union (matcher-match-matcher subs1 advs2)
+                                                (matcher-match-matcher advs1 subs2))
+                                    acc))])))
 
     (lambda (g1 g2)
-      (parameterize ((matcher-match-matcher-successes (lambda (v1 v2 acc) (set-union v2 acc)))
-		     (matcher-match-matcher-unit (set)))
-	(match-metalevels (gestalt-metalevels g1) (gestalt-metalevels g2) (set))))))
+      (parameterize ((matcher-match-matcher-successes (lambda (v1 v2 acc) (tset-union v2 acc)))
+		     (matcher-match-matcher-unit (datum-tset)))
+	(match-metalevels (gestalt-metalevels g1) (gestalt-metalevels g2) (datum-tset))))))
 
 ;; Gestalt Gestalt -> Gestalt
 ;; Erases the g2-subset of g1 from g1, yielding the result.
@@ -414,7 +415,7 @@
 ;; GestaltSet -> Gestalt
 ;; Relabels g so that all matched keys map to (set pid).
 (define (label-gestalt g pid)
-  (define pidset (set pid))
+  (define pidset (datum-tset pid))
   (gestalt-matcher-transform g (lambda (m) (matcher-relabel m (lambda (v) pidset)))))
 
 ;; Gestalt Nat -> Nat

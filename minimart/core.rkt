@@ -8,6 +8,7 @@
 (require "gestalt.rkt")
 (require "functional-queue.rkt")
 (require "trace.rkt")
+(require "tset.rkt")
 
 (provide (struct-out routing-update)
 	 (struct-out message)
@@ -462,12 +463,12 @@
     [(message body meta-level feedback?)
      (define pids (gestalt-match-value (world-partial-gestalt w) body meta-level feedback?))
      (define pt (world-process-table w))
-     (for/fold ([w w]) [(pid (in-set pids))] (step-process e pid (hash-ref pt pid) w))]
+     (for/fold ([w w]) [(pid (in-list (tset->list pids)))] (step-process e pid (hash-ref pt pid) w))]
     [(pending-routing-update g affected-subgestalt known-target)
      (define affected-pids (gestalt-match affected-subgestalt g))
      (define pt (world-process-table w))
      (for/fold ([w w])
-	 [(pid (in-set (if known-target (set-add affected-pids known-target) affected-pids)))]
+	 [(pid (in-list (tset->list (if known-target (tset-add affected-pids known-target) affected-pids))))]
        (match (hash-ref pt pid (lambda () #f))
 	 [#f w]
 	 [p (step-process (routing-update (gestalt-filter g (process-gestalt p))) pid p w)]))]))
