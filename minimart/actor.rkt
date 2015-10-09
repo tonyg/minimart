@@ -436,7 +436,7 @@
 				       #`(#:when #,condition)
 				       #'())
 				(#,(if pub? #'pub #'sub) #,gestalt-stx
-				 #:meta-level #,meta-level)))))
+				 #:meta-level #,(or meta-level 0))))))
 
    (define (push-action! action-stx)
      (define-temporaries [temp action-stx])
