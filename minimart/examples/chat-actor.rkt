@@ -18,7 +18,7 @@
 	 (advertise (tcp-channel us them ?) #:meta-level 1)
 	 (subscribe `(,($ who) says ,($ what))
 	   (say who "says: ~a" what))
-	 
+
 	 (advertise `(,user says ,?))
 	 (subscribe (tcp-channel them us ($ bs)) #:meta-level 1
 	   (send `(,user says ,(string-trim (bytes->string/utf-8 bs)))))
